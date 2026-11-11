@@ -46,7 +46,7 @@ sub-001/anat/sub-001_run-1_echo-2_part-mag_MEGRE.nii.gz
 
 There must be nine acquired magnitude echoes per accepted case, plus a suitable filtered-phase volume or genuine phase source. Session directories/entities and uncompressed `.nii` files are supported. JSON `EchoTime` metadata supplies TE values, converted to milliseconds; protocol fallback is enabled by default and recorded per case. The default fallback is 6.14, 10.14, 14.14, 18.14, 22.14, 26.14, 30.14, 34.14 and 38.14 ms. Disable fallback if missing metadata should be a hard error.
 
-The default cohort must contain at least three independent subjects for separate training, evaluation and test partitions. All sessions/runs from a subject stay in the same partition. Preprocessing prepares both magnitude and phase; selecting magnitude-only training does not remove the current requirement for complete prepared data in both modalities.
+The default cohort must contain at least three independent subjects for separate training, evaluation and test partitions. For experiments with only two or more subjects, enable **Small-dataset experiment** under **01 · Data & preprocessing**. This selects the original 80% training / 20% validation split (0% independent test) and automatically enables the explicit derived-data rebuild checkbox in the dashboard. The second partition drives validation/early stopping/checkpoint selection and is not an unbiased final test set. All sessions/runs from a subject stay in the same partition. Preprocessing prepares both magnitude and phase; selecting magnitude-only training does not remove the current requirement for complete prepared data in both modalities.
 
 ## 4. Launch the dashboard
 
@@ -61,6 +61,8 @@ Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
 3. Configure the generator filters, TE embedding and regularization.
 4. Select modality/device, epoch limit, learning rates, loss weights and critic update counts.
 5. Run **Preprocess data**, wait for completion, then run **Start training**.
+
+For the original two-way workbook, small-dataset mode accepts matching legacy 80/20 training/evaluation or train/test assignments without changing the workbook. The dashboard enables derived-cache rebuild when you switch to this mode, because prior cache signatures may not be compatible; already-prepared source volumes remain reusable unless their preprocessing settings changed. If source images or cache manifests are missing, the original raw ABRIM source is still needed. Never interpret the legacy second partition's validation metrics as held-out test results.
 
 For existing prepared data, enable **Rebuild changed/legacy partitions and derived caches** and run **Preprocess data** when changing percentages/seed or migrating the old two-way split. This checkbox also sets `OVERWRITE_DERIVED=true`; Advanced JSON can override it. The previous split workbook is archived with a unique `.backup-…xlsx` name in the same folder, and derived caches are rebuilt under the existing roots. Matching settings preserve assignments even with the checkbox enabled. Old cache files may remain but only the regenerated manifests define the active cohort. Do not resume a model trained on the old split; the new split changes run identity. Test data is held out from training and checkpoint selection; final test scoring is a separate future workflow.
 

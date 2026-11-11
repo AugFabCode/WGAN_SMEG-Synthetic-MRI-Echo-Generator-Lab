@@ -860,11 +860,34 @@ def load_or_create_ceaset_split(cfg=CFG):
     settings = dict(zip(('training_percent', 'evaluation_percent', 'test_percent'), percentages))
     settings['seed'] = TRAIN_EVAL_SPLIT_SEED
     rebuild = False
+    legacy_two_way = False
     if path.is_file():
         with pd.ExcelFile(path) as book:
+            has_settings = 'split_settings' in book.sheet_names
             recorded = (pd.read_excel(book, sheet_name='split_settings').iloc[0].to_dict()
-                        if 'split_settings' in book.sheet_names else {})
-        mismatch = any(recorded.get(k) != v for k, v in settings.items())
+                        if has_settings else {})
+        # The original dashboard stored only patient_split and used 80% training /
+        # 20% evaluation. Accept its workbook *read-only* in the explicit experiment
+        # mode; existing 'test' labels are treated as validation, never final test.
+        legacy_two_way = (SMALL_DATASET_MODE and not has_settings and
+                          percentages == [80.0, 20.0, 0.0] and TRAIN_EVAL_SPLIT_SEED == 42)
+        if legacy_two_way:
+            # Only adopt an original workbook when its actual cohort and counts
+            # match the requested allocation. Otherwise follow the normal
+            # explicit backup-and-repartition path, never silently relabel.
+            old = pd.read_excel(path, sheet_name='patient_split', dtype=str)
+            if not {'case_id','patient_key','split'} <= set(old.columns):
+                legacy_two_way = False
+            else:
+                old = old[old.case_id.isin(cases)].copy()
+                labels = old['split'].map(_canonical_split_label).replace({'test':'eval'})
+                actual = old.assign(split=labels).groupby('split')['patient_key'].nunique().to_dict()
+                target = partition_subjects(expected.values(), percentages, TRAIN_EVAL_SPLIT_SEED)
+                desired = {name: list(target.values()).count(name) for name in ('training','eval')}
+                legacy_two_way = (set(old.case_id) == set(cases) and
+                                  not old.case_id.duplicated().any() and
+                                  actual == desired)
+        mismatch = not legacy_two_way and any(recorded.get(k) != v for k, v in settings.items())
         if mismatch:
             if not (REBUILD_PATIENT_SPLIT and OVERWRITE_DERIVED and PIPELINE_ACTION == 'prepare'):
                 raise ValueError('Legacy or changed partition settings: enable REBUILD_PATIENT_SPLIT and OVERWRITE_DERIVED, then preprocess. Existing assignments are preserved until an explicit rebuild; do not resume old models after repartitioning.')
@@ -881,6 +904,10 @@ def load_or_create_ceaset_split(cfg=CFG):
             raise ValueError(f'{path}: patient_split requires case_id, patient_key, split')
         frame = frame[['case_id','patient_key','split']].copy()
         frame['split'] = frame['split'].map(_canonical_split_label)
+        if legacy_two_way:
+            # A legacy 'test' set was not an independent held-out set in this
+            # training architecture: it drives fixed-validation MAE/early stopping.
+            frame['split'] = frame['split'].replace({'test': 'eval'})
         if frame['case_id'].duplicated().any():
             raise ValueError('Duplicate cases in patient_split')
         extra = set(frame.case_id) - set(cases)
@@ -893,6 +920,10 @@ def load_or_create_ceaset_split(cfg=CFG):
         for row in frame.itertuples():
             if row.patient_key != expected[row.case_id]:
                 raise ValueError(f'{row.case_id}: patient_key must be {expected[row.case_id]}, got {row.patient_key}')
+        if legacy_two_way:
+            print('[SPLIT] Reusing legacy two-way workbook without modifying it. '
+                  'Its second partition is VALIDATION for checkpoint selection; '
+                  'there is no untouched final test set.')
     else:
         if not rebuild and not CREATE_NEW_SPLIT_IF_MANIFEST_MISSING:
             raise FileNotFoundError(path)

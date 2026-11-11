@@ -25,7 +25,7 @@ python echo_gen_dashboard.py
 
 Open [http://127.0.0.1:8765](http://127.0.0.1:8765), enter the ABRIM directory, run **Preprocess data**, and then **Start training**. FSL is required for preprocessing; CLEAR-SWI is also required when filtered phase must be computed. The MRI dataset and trained weights are not bundled.
 
-Set subject percentages under **01 · Data & preprocessing** (default **70% training / 15% evaluation / 15% test**). The test partition is held out from training and model selection. **Stop training** interrupts at a safe boundary; resume uses the last saved checkpoint.
+Set subject percentages under **01 · Data & preprocessing** (default **70% training / 15% evaluation / 15% test**). For small/legacy datasets, the opt-in **Small-dataset experiment** uses the original **80% training / 20% validation** split with no independent test; the 20% is used for checkpoint selection and early stopping, not unbiased final testing. The test partition is held out from training and model selection. **Stop training** interrupts at a safe boundary; resume uses the last saved checkpoint.
 
 The dashboard's **03 · Training setup** includes the live MRI preview checkbox and **Preview interval (seconds)** before training starts. Set the interval to **20** for the requested cadence (default: 60). The central transversal training-chunk slice is displayed as input, generator output, target and error, with 2× CPU pixel-replicated upscaling. Previews stay in memory only; no preview files are saved. See [the dashboard walkthrough](GETTING_STARTED.md#configure-live-mri-previews-before-starting-training) for controls, timing and performance limits.
 
