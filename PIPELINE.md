@@ -15,7 +15,7 @@ The intended downstream workflow combines acquired and synthetic echoes for SWI/
 3. Obtain filtered phase from an existing `filteredphase_orig` volume or CLEAR-SWI with genuine phase inputs.
 4. Build a TE3 magnitude BET mask (`-f 0.2`, robust center and mask output by default), then apply the configured 2 mm erosion.
 5. Write physical-value masked magnitude/phase images and optional shell-style normalized QC/export images.
-6. Create or reuse a deterministic subject-level training/evaluation/test split: defaults 70%/15%/15%, seed 42. Allocation uses independent subjects, keeps sessions/runs together, and guarantees at least one subject per nonzero partition. Test rows are prepared in the same cache layout but excluded from training, epoch validation, early stopping and best-checkpoint selection. A separate final test evaluation workflow is not implemented.
+6. Create or reuse a deterministic subject-level training/evaluation/test split: defaults 70%/15%/15%, seed 42. Opt-in small-dataset mode retains the original two-way 80% training / 20% validation split (no independent held-out test) and can reuse a compatible legacy workbook without rewriting it. Allocation uses independent subjects, keeps sessions/runs together, and guarantees at least one subject per nonzero partition. Test rows are prepared in the same cache layout but excluded from training, epoch validation, early stopping and best-checkpoint selection. A separate final test evaluation workflow is not implemented.
 7. Compute physical-value normalization statistics, create overlapping chunks and build the uncompressed float32 NumPy cache.
 8. Record the derived-data completion signature and validate artifact consistency.
 
