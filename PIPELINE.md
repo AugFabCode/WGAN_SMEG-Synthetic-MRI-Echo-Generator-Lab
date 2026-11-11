@@ -92,3 +92,5 @@ Losses have different scales and purposes. A favorable critic gap alone does not
 Checkpoints and history filenames include the run identity described in [Configuration](CONFIGURATION.md). Optimizer-inclusive TensorFlow state supports training continuation; generator `.weights.h5` files contain weights rather than a complete standalone exported inference graph. Recreate the matching generator architecture and normalization using the saved configuration before loading those weights.
 
 The source notebook's optional inference/evaluation cells are not bundled as new standalone commands. They may need explicit checkpoint paths for the new naming convention. Automatic SWI/QSM assembly, reconstruction and quantitative downstream evaluation remain separate work.
+
+Live MRI previews reuse the existing fake tensor from the first critic update. A detached, downsampled central transversal chunk slice is returned separately from scalar metrics and is never included in a loss. Publishing occurs after the batch, so the displayed image represents the output before that batch’s subsequent weight updates.

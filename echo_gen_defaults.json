@@ -211,5 +211,7 @@
   "SOURCE_ROOT": "/data/disk_3/student_projects/swi/ABRIM",
   "CEASET_CHUNK_ROOT": null,
   "CEASET_FAST_NPY_CACHE_ROOT": null,
-  "RUN_INSTANCE": ""
+  "RUN_INSTANCE": "",
+  "TRAINING_PREVIEW_ENABLED": true,
+  "TRAINING_PREVIEW_INTERVAL_SECONDS": 60.0
 }

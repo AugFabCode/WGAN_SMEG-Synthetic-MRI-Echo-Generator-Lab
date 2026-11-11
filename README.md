@@ -10,7 +10,7 @@ The research goal is to investigate whether synthetic late echoes, combined with
 
 - Independent preprocessing and training commands, extracted from the source notebook.
 - ABRIM discovery, filtered-phase handling, TE3 masks, physical-value normalization statistics, subject-level splits, chunks and a fast NumPy cache.
-- A local dashboard with dataset paths, model parameters, training hyperparameters, a WGAN-GP diagram, epoch curves and process logs.
+- A local dashboard with dataset paths, model parameters, training hyperparameters, a WGAN-GP diagram, epoch curves, low-overhead training MRI previews and process logs.
 - Configuration-based checkpoint names, fixed-validation best-model selection and optimizer-inclusive resume.
 - Compatibility with the existing project folders and both supported cache layouts.
 
