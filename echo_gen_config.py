@@ -226,9 +226,12 @@ MAG_R2STAR_MAX_PER_MS = _setting('MAG_R2STAR_MAX_PER_MS', MAG_R2STAR_MAX_PER_MS)
 # -----------------------------------------------------------------------------
 # Patient split and chunks
 REBUILD_PATIENT_SPLIT = _setting("REBUILD_PATIENT_SPLIT", False)
-TRAINING_SPLIT_PERCENT = _setting("TRAINING_SPLIT_PERCENT", 70.0)
-EVALUATION_SPLIT_PERCENT = _setting("EVALUATION_SPLIT_PERCENT", 15.0)
-TEST_SPLIT_PERCENT = _setting("TEST_SPLIT_PERCENT", 15.0)
+# Opt-in compatibility with the original 80/20 training/evaluation split.
+# The second partition is used for validation, not as an untouched final test set.
+SMALL_DATASET_MODE = _setting("SMALL_DATASET_MODE", False)
+TRAINING_SPLIT_PERCENT = _setting("TRAINING_SPLIT_PERCENT", 80.0 if SMALL_DATASET_MODE else 70.0)
+EVALUATION_SPLIT_PERCENT = _setting("EVALUATION_SPLIT_PERCENT", 20.0 if SMALL_DATASET_MODE else 15.0)
+TEST_SPLIT_PERCENT = _setting("TEST_SPLIT_PERCENT", 0.0 if SMALL_DATASET_MODE else 15.0)
 # -----------------------------------------------------------------------------
 TRAIN_EVAL_SPLIT_SEED = 42
 TRAIN_EVAL_SPLIT_SEED = _setting('TRAIN_EVAL_SPLIT_SEED', TRAIN_EVAL_SPLIT_SEED)
@@ -566,6 +569,8 @@ def validate_settings():
     fractions = (TRAINING_SPLIT_PERCENT, EVALUATION_SPLIT_PERCENT, TEST_SPLIT_PERCENT)
     if fractions[0] <= 0 or fractions[1] <= 0 or fractions[2] < 0 or not math.isclose(sum(fractions), 100., abs_tol=1e-8, rel_tol=0):
         raise ValueError('Partition percentages must total 100; training/evaluation must be positive and test nonnegative')
+    if SMALL_DATASET_MODE and fractions[2] != 0:
+        raise ValueError('SMALL_DATASET_MODE uses training/evaluation only; TEST_SPLIT_PERCENT must be 0')
     if 'TRAIN_EVAL_SPLIT_FRACTION' in _OVERRIDES:
         raise ValueError('TRAIN_EVAL_SPLIT_FRACTION is retired; use TRAINING_SPLIT_PERCENT, EVALUATION_SPLIT_PERCENT and TEST_SPLIT_PERCENT')
     if not PROJECT_ROOT.is_dir(): raise ValueError('Project root does not exist')
