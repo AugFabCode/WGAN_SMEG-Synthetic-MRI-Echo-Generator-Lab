@@ -10,7 +10,7 @@ The research goal is to investigate whether synthetic late echoes, combined with
 
 - Independent preprocessing and training commands, extracted from the source notebook.
 - ABRIM discovery, filtered-phase handling, TE3 masks, physical-value normalization statistics, subject-level splits, chunks and a fast NumPy cache.
-- A local dashboard with dataset paths, model parameters, training hyperparameters, a WGAN-GP diagram, epoch curves, low-overhead training MRI previews and process logs.
+- A local dashboard with dataset paths, model parameters, training hyperparameters, a WGAN-GP diagram, epoch curves, low-overhead training MRI previews an event feed and optional process logs.
 - Configuration-based checkpoint names, fixed-validation best-model selection and optimizer-inclusive resume.
 - Compatibility with the existing project folders and both supported cache layouts.
 
@@ -67,7 +67,9 @@ The new entry points do not automatically run the source notebook's optional inf
 Configuration, synthetic-data, and preprocessing/training-validation regression tests are available:
 
 ```bash
-python -m unittest -v test_echo_gen.py test_echo_gen_data.py test_echo_gen_preview.py test_echo_gen_partition.py
+python -m unittest -v test_echo_gen.py test_echo_gen_data.py test_echo_gen_preview.py test_echo_gen_partition.py test_echo_gen_events.py
 ```
 
 Full ABRIM preprocessing and GPU training have not been verified in the delivery environment. Browser rendering also remains unverified. See [Development and validation](DEVELOPMENT.md) for the checks performed and their limits.
+
+The **Event feed** summarizes recent process output. The original **Process log** is hidden by default; enable **Show original process log** when you need raw details. Full on-disk logs continue to be recorded.
