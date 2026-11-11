@@ -26,6 +26,11 @@ class ConfigurationTests(unittest.TestCase):
     def test_partition_config_validation_and_identity(self):
         base=self.resolve()
         self.assertEqual([base[k] for k in ('TRAINING_SPLIT_PERCENT','EVALUATION_SPLIT_PERCENT','TEST_SPLIT_PERCENT')],[70,15,15])
+        small=self.resolve({'SMALL_DATASET_MODE':True})
+        self.assertEqual([small[k] for k in ('TRAINING_SPLIT_PERCENT','EVALUATION_SPLIT_PERCENT','TEST_SPLIT_PERCENT')],[80,20,0])
+        self.assertNotEqual(base['RUN_NAME'],small['RUN_NAME'])
+        self.resolve({'SMALL_DATASET_MODE':True,'TEST_SPLIT_PERCENT':10},ok=False)
+        self.resolve({'SMALL_DATASET_MODE':'true'},ok=False)
         changed=self.resolve({'TRAINING_SPLIT_PERCENT':60,'TEST_SPLIT_PERCENT':25})
         self.assertNotEqual(base['RUN_NAME'],changed['RUN_NAME'])
         for settings in ({'TEST_SPLIT_PERCENT':30},{'TRAINING_SPLIT_PERCENT':0,'EVALUATION_SPLIT_PERCENT':85}, {'TEST_SPLIT_PERCENT':-1}, {'TEST_SPLIT_PERCENT':True}, {'TRAIN_EVAL_SPLIT_FRACTION':.2}):
