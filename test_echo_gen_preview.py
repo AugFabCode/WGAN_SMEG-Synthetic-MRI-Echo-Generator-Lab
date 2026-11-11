@@ -29,13 +29,16 @@ class PreviewTests(unittest.TestCase):
         meta={'modality':'phase'}
         result=render_preview(np.stack([x,x,x,np.ones_like(x)]),meta)
         im=Image.open(io.BytesIO(base64.b64decode(result['image'].split(',')[1])))
-        self.assertEqual(im.size,(640,128))
+        self.assertEqual(im.size,(960,192))
         self.assertEqual(result['panel_shape'],[64,80])
-        self.assertEqual(result['display_panel_shape'],[128,160])
+        self.assertEqual(result['display_panel_shape'],[192,240])
+        self.assertEqual(result['display_scale'],3)
+        self.assertEqual(result['input_count'],1)
+        self.assertEqual(result['panel_roles'],['input','generated','target','error'])
         self.assertEqual(result['display_interpolation'],'nearest')
         self.assertEqual(result['display_range'][0],-result['display_range'][1])
-        np.testing.assert_array_equal(np.array(im)[:,160:320],np.array(im)[:,320:480])
-        self.assertFalse(np.array(im)[:,480:].any())
+        np.testing.assert_array_equal(np.array(im)[:,240:480],np.array(im)[:,480:720])
+        self.assertFalse(np.array(im)[:,720:].any())
         with self.assertRaises(ValueError):render_preview(np.zeros((4,257,10)),meta)
     def test_exact_pixel_replication_and_panel_isolation(self):
         from PIL import Image
@@ -46,30 +49,37 @@ class PreviewTests(unittest.TestCase):
         result=render_preview(planes,{'modality':'magnitude'})
         actual=np.array(Image.open(io.BytesIO(base64.b64decode(result['image'].split(',')[1]))))
         rgb=np.repeat((x[...,None]*255).astype(np.uint8),3,axis=-1)
-        expected=np.repeat(np.repeat(rgb,2,axis=0),2,axis=1)
+        expected=np.repeat(np.repeat(rgb,3,axis=0),3,axis=1)
         for y in range(rgb.shape[0]):
             for x in range(rgb.shape[1]):
-                block=actual[2*y:2*y+2,2*x:2*x+2]
+                block=actual[3*y:3*y+3,3*x:3*x+3]
                 self.assertTrue((block == rgb[y,x]).all())
-        np.testing.assert_array_equal(actual[:,:12],expected)
-        self.assertFalse(actual[:,12:24].any())
-        self.assertTrue((actual[:,24:36]==255).all())
+        np.testing.assert_array_equal(actual[:,:18],expected)
+        self.assertFalse(actual[:,18:36].any())
+        self.assertTrue((actual[:,36:54]==255).all())
         np.testing.assert_array_equal(planes,before)
     def test_full_size_payload_accepted_by_dashboard(self):
         from PIL import Image
         import base64,io
         rng=np.random.default_rng(42)
-        planes=rng.normal(size=(4,256,256)).astype(np.float32);planes[3]=1
-        payload=render_preview(planes,{'modality':'magnitude','run_name':'current'})
+        # 4 different acquired echoes plus generated/target/mask are the
+        # maximum payload: seven 3x pixel-replicated panels.
+        planes=rng.normal(size=(7,256,256)).astype(np.float32);planes[6]=1
+        payload=render_preview(planes,{'modality':'magnitude','run_name':'current',
+               'input_tes_ms':[6.14,10.14,14.14,18.14],
+               'input_echoes':['TE1','TE2','TE3','TE4'],
+               'target_echo':'TE9','target_te_ms':38.14})
+        self.assertEqual(payload['input_count'],4)
+        self.assertEqual(payload['panel_roles'],['input']*4+['generated','target','error'])
         im=Image.open(io.BytesIO(base64.b64decode(payload['image'].split(',')[1])))
-        self.assertEqual(im.size,(2048,512))
+        self.assertEqual(im.size,(5376,768))
         encoded=json.dumps(payload)
         self.assertLess(len(encoded.encode()),12_000_000)
         with tempfile.TemporaryDirectory() as tmp:
             jobs=self.job(tmp)
             jobs.accept_preview(payload,'test-token')
             self.assertEqual(list(Path(tmp).iterdir()),[])
-            self.assertEqual(jobs.preview('magnitude')['display_scale'],2)
+            self.assertEqual(jobs.preview('magnitude')['display_scale'],3)
     def test_empty_mask_and_nonfinite(self):
         result=render_preview(np.zeros((4,16,16)),{'modality':'magnitude'})
         self.assertFalse(result['has_brain'])
@@ -127,10 +137,14 @@ class PreviewTests(unittest.TestCase):
             out.pop('_preview',None)
             self.assertEqual(out,{'d_loss':2.,'g_total':3.,'aux':4.})
     def test_middle_slice_and_bounded_transfer(self):
-        # Run the actual slice-selection block against a small NumPy TensorFlow adapter.
+        # Exercise the actual GPU preview slice-selection block with a NumPy
+        # TensorFlow adapter. Every active input has a distinct source value.
         source=(ROOT/'echo_gen_training.py').read_text()
-        a=source.index('            preview = None\n');b=source.index('            # Full-resolution GP',a)
+        a=source.index('            preview = None\n')
+        b=source.index('            # Full-resolution GP',a)
         import textwrap
+        from contextlib import nullcontext
+        from types import SimpleNamespace
         class TF:
             @staticmethod
             def shape(a):return np.array(a.shape)
@@ -138,16 +152,56 @@ class PreviewTests(unittest.TestCase):
             def stop_gradient(a):return a
             @staticmethod
             def gather(a,index,axis):return np.take(a,index,axis=axis)
+            @staticmethod
+            def boolean_mask(a,condition,axis=0):
+                return np.compress(np.asarray(condition,dtype=bool),a,axis=axis)
+            @staticmethod
+            def device(*args):return nullcontext()
             maximum=staticmethod(np.maximum)
             stack=staticmethod(np.stack)
+            concat=staticmethod(np.concatenate)
         volume=np.arange(1*300*270*5*1,dtype=np.float32).reshape(1,300,270,5,1)
+        echoes=np.stack([volume[0]+float(k)*1000000 for k in range(4)],axis=0)[None,...]
         for axis in (0,1,2):
-            ns={'tf':TF,'preview_axis':axis,'fake_m':volume,'real_m':volume,'mask':np.ones_like(volume),'inputs':{'echo_images':volume[:,None]}}
+            ns={'tf':TF,'self':SimpleNamespace(generator_device='/CPU:0'),
+                'preview_axis':axis,'fake_m':volume,'real_m':volume,
+                'mask':np.ones_like(volume),
+                'inputs':{'echo_images':echoes,'echo_mask':np.ones((1,4),np.float32)}}
             exec(textwrap.dedent(source[a:b]),ns)
-            result=ns['preview'];self.assertEqual(result.shape[0],4)
+            result=ns['preview']
+            self.assertEqual(result.shape[0],7)
             self.assertLessEqual(max(result.shape[1:]),256)
             expected=np.take(volume[0,...,0],volume.shape[axis+1]//2,axis=axis)
             stride=np.maximum((np.array(expected.shape)+255)//256,1)
-            np.testing.assert_array_equal(result[1],expected[::stride[0],::stride[1]])
+            for k in range(4):
+                np.testing.assert_array_equal(
+                    result[k],expected[::stride[0],::stride[1]]+float(k)*1000000)
+            np.testing.assert_array_equal(result[4],expected[::stride[0],::stride[1]])
+            # A padded stack still displays only active inputs.
+            ns['inputs']['echo_mask']=np.array([[1,1,0,0]],np.float32)
+            exec(textwrap.dedent(source[a:b]),ns)
+            self.assertEqual(ns['preview'].shape[0],5)
+
+    def test_variable_echo_count_and_metadata(self):
+        from PIL import Image
+        import base64,io
+        mask=np.ones((5,6),np.float32)
+        for k in range(1,5):
+            planes=np.stack([np.full((5,6),i/10,dtype=np.float32)
+                             for i in range(k)]+[
+                             np.full((5,6),.35,dtype=np.float32),
+                             np.full((5,6),.5,dtype=np.float32),mask])
+            metadata={'modality':'magnitude','input_tes_ms':[float(6+4*i) for i in range(k)],
+                      'input_echoes':[f'TE{i+1}' for i in range(k)],'target_te_ms':38.0,
+                      'target_echo':'TE9'}
+            result=render_preview(planes,metadata)
+            self.assertEqual(result['input_count'],k)
+            self.assertEqual(result['panel_count'],k+3)
+            self.assertEqual(result['input_tes_ms'],metadata['input_tes_ms'])
+            self.assertEqual(result['input_echoes'],metadata['input_echoes'])
+            im=Image.open(io.BytesIO(base64.b64decode(result['image'].split(',')[1])))
+            self.assertEqual(im.size,((k+3)*18,15))
+            with self.assertRaisesRegex(ValueError,'input_tes_ms'):
+                render_preview(planes,dict(metadata,input_tes_ms=[6.0]))
 
 if __name__=='__main__':unittest.main()
