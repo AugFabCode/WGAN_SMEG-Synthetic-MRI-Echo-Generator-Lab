@@ -2289,7 +2289,7 @@ def train_ceaset_modality(
         flush=True,
     )
 
-    preview_writer = PreviewWriter(outdir / f'preview_{RUN_NAME}.json', TRAINING_PREVIEW_INTERVAL_SECONDS)
+    preview_writer = PreviewWriter(os.environ.get('ECHO_GEN_PREVIEW_URL'), os.environ.get('ECHO_GEN_PREVIEW_TOKEN'), TRAINING_PREVIEW_INTERVAL_SECONDS)
     preview_axes = {}
     for epoch in range(int(start_epoch) + 1, int(epochs) + 1):
         critic_updates = trainer.critic_updates_for_epoch(epoch)

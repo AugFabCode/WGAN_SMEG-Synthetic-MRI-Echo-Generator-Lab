@@ -17,8 +17,12 @@ HERE = Path(__file__).resolve().parent
 REPOSITORY = 'https://github.com/AugFabCode/WGAN_SMEG-Synthetic-MRI-Echo-Generator-Lab'
 
 class Jobs:
-    def __init__(self, project):
+    def __init__(self, project, preview_url=None):
         self.project = project
+        self.preview_url = preview_url
+        self.preview_token = None
+        self.previews = {}
+        self.preview_versions = {}
         self.process = None
         self.log = None
         self.settings = None
@@ -42,6 +46,8 @@ class Jobs:
             command = [sys.executable, '-u', str(HERE / ('preprocess_echo_gen.py' if action == 'prepare' else 'train_echo_gen.py')),
                        '--project-root', str(self.project), '--config', str(config_path)]
             env = dict(os.environ, ECHO_GEN_RUN_ID=stamp)
+            env.pop('ECHO_GEN_PREVIEW_URL', None)
+            env.pop('ECHO_GEN_PREVIEW_TOKEN', None)
             checked = subprocess.run(command + ['--dry-run'], env=env, capture_output=True, text=True, timeout=30)
             if checked.returncode: raise ValueError(checked.stderr[-5000:] or checked.stdout[-5000:])
             # Dry-run emits diagnostic lines before the JSON object.
@@ -49,6 +55,12 @@ class Jobs:
             self.run_name = resolved['RUN_NAME']
             self.settings = resolved
             self.action = action
+            self.previews = {}
+            self.preview_versions = {}
+            self.preview_token = secrets.token_urlsafe(32)
+            if self.preview_url and action == 'train' and config.get('TRAINING_PREVIEW_ENABLED',True):
+                env['ECHO_GEN_PREVIEW_URL'] = self.preview_url
+                env['ECHO_GEN_PREVIEW_TOKEN'] = self.preview_token
             self.log = directory / f'dashboard_{action}_{stamp}.log'
             with self.log.open('wb') as log:
                 self.process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env)
@@ -66,13 +78,7 @@ class Jobs:
                 for modality in self.settings['TRAINING_MODALITIES_TO_RUN']:
                     p = Path(self.settings['TRAINING_ROOT']) / modality / f'history_{self.run_name}.csv'
                     if p.is_file(): histories[modality] = list(csv.DictReader(io.StringIO(p.read_text())))
-            previews = {}
-            if self.settings and self.action == 'train' and self.settings.get('TRAINING_PREVIEW_ENABLED', True):
-                for modality in self.settings['TRAINING_MODALITIES_TO_RUN']:
-                    path = Path(self.settings['TRAINING_ROOT']) / modality / f'preview_{self.run_name}.json'
-                    if path.is_file():
-                        stat = path.stat()
-                        previews[modality] = f'{stat.st_mtime_ns}-{stat.st_size}'
+            previews = dict(self.preview_versions)
             return {'previews': previews, 'state':'idle' if not self.process else 'running' if code is None else 'completed' if code == 0 else 'failed',
                     'exit_code':code, 'action':self.action, 'run_name':self.run_name, 'log':text,
                     'histories':histories, 'project':str(self.project),
@@ -82,18 +88,30 @@ class Jobs:
     def preview(self, modality):
         if modality not in ('magnitude', 'phase'): raise ValueError('Invalid modality')
         with self.lock:
-            if not self.settings or self.action != 'train': raise FileNotFoundError('No training preview')
-            if not self.settings.get('TRAINING_PREVIEW_ENABLED', True): raise FileNotFoundError('Previews disabled')
-            path = Path(self.settings['TRAINING_ROOT']) / modality / f'preview_{self.run_name}.json'
-            if path.stat().st_size > 2_000_000: raise ValueError('Preview exceeds size limit')
-            payload = json.loads(path.read_text())
-            if payload.get('run_name') != self.run_name or payload.get('modality') != modality:
-                raise ValueError('Preview identity mismatch')
-            return payload
+            if (modality not in self.previews or self.previews[modality].get('run_name') != self.run_name
+                    or not self.settings or not self.settings.get('TRAINING_PREVIEW_ENABLED', True)):
+                raise FileNotFoundError('No in-memory training preview')
+            return self.previews[modality]
+
+    def accept_preview(self, payload, token):
+        with self.lock:
+            if not self.preview_token or not secrets.compare_digest(token, self.preview_token):
+                raise PermissionError('Invalid preview publisher token')
+            modality = payload.get('modality')
+            if (not self.settings or self.action != 'train' or
+                not self.settings.get('TRAINING_PREVIEW_ENABLED', True) or
+                payload.get('run_name') != self.run_name or
+                modality not in self.settings['TRAINING_MODALITIES_TO_RUN']):
+                raise ValueError('Preview does not belong to the active training run')
+            if not isinstance(payload.get('image'),str) or not payload['image'].startswith('data:image/png;base64,'):
+                raise ValueError('Invalid preview image')
+            # Only the latest image per modality is retained, in RAM only.
+            self.previews[modality] = payload
+            self.preview_versions[modality] = self.preview_versions.get(modality, 0) + 1
 
 
 def serve(project, port):
-    jobs = Jobs(project)
+    jobs = Jobs(project, f'http://127.0.0.1:{port}/api/preview')
     token = secrets.token_urlsafe(32)
     class Handler(BaseHTTPRequestHandler):
         def reply(self, code, data, mime='application/json'):
@@ -122,6 +140,17 @@ def serve(project, port):
                 except (ValueError, OSError) as exc: return self.reply(400,{'error':str(exc)})
             self.reply(404, {'error':'Not found'})
         def do_POST(self):
+            if self.path == '/api/preview':
+                if not self.trusted(): return self.reply(403,{'error':'Invalid host'})
+                try:
+                    size = int(self.headers.get('Content-Length','0'))
+                    if not 0 < size < 12_000_000: raise ValueError('Invalid preview size')
+                    payload = json.loads(self.rfile.read(size))
+                    if not isinstance(payload,dict): raise ValueError('Invalid preview object')
+                    jobs.accept_preview(payload,self.headers.get('X-Echo-Preview-Token',''))
+                    return self.reply(200,{'ok':True})
+                except PermissionError as exc: return self.reply(403,{'error':str(exc)})
+                except (ValueError, OSError) as exc: return self.reply(400,{'error':str(exc)})
             if not self.trusted() or self.headers.get('X-Echo-Token') != token: return self.reply(403,{'error':'Invalid request token'})
             if self.path != '/api/start': return self.reply(404,{'error':'Not found'})
             try:
