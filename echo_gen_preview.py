@@ -31,38 +31,67 @@ def png_rgb(rgb):
 
 
 def render_preview(planes, metadata):
-    # Already bounded/downsampled on device: input, generated, target, mask.
-    planes=np.asarray(planes,dtype=np.float32)
-    if planes.ndim != 3 or planes.shape[0] != 4 or max(planes.shape[1:]) > 256:
-        raise ValueError('Expected four planes no larger than 256 pixels per side')
-    if not np.isfinite(planes).all(): raise ValueError('Non-finite preview')
-    inp, generated, target, mask = planes
-    mask=mask > .5
-    values=np.concatenate([inp[mask],target[mask]])
+    """Render K actual input echoes plus generated, target and error.
+
+    Each 2-D panel is bounded to 256 pixels per side on the GPU. The CPU
+    performs exact 3x nearest-neighbor pixel replication ONLY for display;
+    no image intensities or tensors used for training are interpolated.
+    """
+    planes = np.asarray(planes, dtype=np.float32)
+    if planes.ndim != 3 or not (4 <= planes.shape[0] <= 7) or max(planes.shape[1:]) > 256:
+        raise ValueError('Expected 1-4 input planes plus generated, target and mask, at most 256 pixels per side')
+    if not np.isfinite(planes).all():
+        raise ValueError('Non-finite preview')
+    count = planes.shape[0] - 3
+    for field in ('input_tes_ms', 'input_echoes'):
+        if field in metadata and len(metadata[field]) != count:
+            raise ValueError(f'{field} does not match the number of input planes')
+
+    inputs = planes[:count]
+    generated, target, mask = planes[count:]
+    mask = mask > .5
+    # A common display window across every acquired input and target makes
+    # magnitude/phase comparisons meaningful even when each TE differs.
+    values = np.concatenate([plane[mask] for plane in (*inputs, target)])
     if values.size:
-        low,high=np.percentile(values,[1,99]).tolist()
-        if metadata['modality']=='phase': high=max(abs(low),abs(high),1e-6); low=-high
-        elif high<=low: low=min(0.,low); high=max(high,low+1e-6)
-    else: low,high=0.,1.
+        low, high = np.percentile(values, [1, 99]).tolist()
+        if metadata['modality'] == 'phase':
+            high = max(abs(low), abs(high), 1e-6)
+            low = -high
+        elif high <= low:
+            low = min(0., low)
+            high = max(high, low + 1e-6)
+    else:
+        low, high = 0., 1.
+
     def gray(a):
-        a=np.clip((a-low)/max(high-low,1e-6),0,1)*mask
-        return np.repeat((a[...,None]*255).astype(np.uint8),3,axis=-1)
-    error=np.abs(generated-target)*mask
-    error_max=max(float(np.percentile(error[mask],99)) if mask.any() else 0.,1e-6)
-    e=np.clip(error/error_max,0,1)
-    heat=np.stack([255*e,100*e,np.zeros_like(e)],axis=-1).astype(np.uint8)
-    # Replicate display pixels exactly: one pixel becomes a constant 2x2 block.
-    # Training arrays, error values and GPU capture size remain unchanged.
-    panels = [gray(inp), gray(generated), gray(target), heat]
+        a = np.clip((a - low) / max(high - low, 1e-6), 0, 1) * mask
+        return np.repeat((a[..., None] * 255).astype(np.uint8), 3, axis=-1)
+
+    error = np.abs(generated - target) * mask
+    error_max = max(float(np.percentile(error[mask], 99)) if mask.any() else 0., 1e-6)
+    e = np.clip(error / error_max, 0, 1)
+    heat = np.stack([255*e, 100*e, np.zeros_like(e)], axis=-1).astype(np.uint8)
+    panels = [gray(a) for a in inputs] + [gray(generated), gray(target), heat]
+    scale = 3
+    # Independent replication prevents any interpolation between MRI panels.
     rgb = np.concatenate([
-        np.repeat(np.repeat(panel, 2, axis=0), 2, axis=1)
+        np.repeat(np.repeat(panel, scale, axis=0), scale, axis=1)
         for panel in panels
     ], axis=1)
-    return dict(metadata, image='data:image/png;base64,'+base64.b64encode(png_rgb(rgb)).decode(),
-                display_range=[low,high],error_range=[0.,error_max],has_brain=bool(mask.any()),
-                units='sample-normalized',panel_shape=list(inp.shape),
-                display_panel_shape=[inp.shape[0]*2,inp.shape[1]*2],
-                display_scale=2,display_interpolation='nearest',captured_at=time.time())
+    return dict(
+        metadata,
+        image='data:image/png;base64,' + base64.b64encode(png_rgb(rgb)).decode(),
+        input_count=count,
+        panel_count=len(panels),
+        panel_roles=['input'] * count + ['generated', 'target', 'error'],
+        display_range=[low, high], error_range=[0., error_max],
+        has_brain=bool(mask.any()), units='sample-normalized',
+        panel_shape=list(inputs.shape[1:]),
+        display_panel_shape=[inputs.shape[1]*scale, inputs.shape[2]*scale],
+        display_scale=scale, display_interpolation='nearest',
+        captured_at=time.time(),
+    )
 
 
 class PreviewWriter:
