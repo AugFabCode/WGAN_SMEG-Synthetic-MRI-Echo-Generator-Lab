@@ -14,7 +14,8 @@
 | `echo_gen_preprocessing.py` | ABRIM preparation, artifact validation, cache readers and NumPy physical baselines |
 | `echo_gen_training.py` | TensorFlow models, sampling, losses, evaluation and epoch/checkpoint loop |
 | `echo_gen_dashboard.py` | Local HTTP server, subprocess launch and monitoring |
-| `echo_gen_dashboard.html` | Configuration form, architecture schematic, curves and logs |
+| `echo_gen_dashboard.html` | Configuration form, architecture schematic, curves, MRI preview panel and logs |
+| `echo_gen_preview.py` | Bounded central-slice extraction, background CPU rendering, 3× bicubic upscaling and in-memory delivery |
 
 The preprocessing module must remain importable without TensorFlow. Its artifact validator accepts an optional `sample_builder` callback. Preprocessing validates prepared artifacts without that callback; the training runner supplies `make_ceaset_sample_from_configuration` so actual model-input checks still run before training. This avoids relying on another module's globals after the notebook split.
 
@@ -37,7 +38,7 @@ These tests require no ABRIM dataset, FSL execution or TensorFlow model training
 For syntax validation:
 
 ```bash
-python -m compileall -q echo_gen_config.py echo_gen_preprocessing.py echo_gen_training.py echo_gen_runner.py echo_gen_dashboard.py preprocess_echo_gen.py train_echo_gen.py
+python -m compileall -q echo_gen_config.py echo_gen_preprocessing.py echo_gen_training.py echo_gen_runner.py echo_gen_dashboard.py echo_gen_preview.py preprocess_echo_gen.py train_echo_gen.py
 ```
 
 ## Checks performed and remaining verification

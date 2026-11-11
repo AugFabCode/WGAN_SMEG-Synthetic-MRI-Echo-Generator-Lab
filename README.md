@@ -25,6 +25,8 @@ python echo_gen_dashboard.py
 
 Open [http://127.0.0.1:8765](http://127.0.0.1:8765), enter the ABRIM directory, run **Preprocess data**, and then **Start training**. FSL is required for preprocessing; CLEAR-SWI is also required when filtered phase must be computed. The MRI dataset and trained weights are not bundled.
 
+The dashboard's **03 · Training setup** includes the live MRI preview checkbox and **Preview interval (seconds)** before training starts. Set the interval to **20** for the requested cadence (default: 60). The central transversal training-chunk slice is displayed as input, generator output, target and error, with 3× CPU bicubic upscaling. Previews stay in memory only; no preview files are saved. See [the dashboard walkthrough](GETTING_STARTED.md#configure-live-mri-previews-before-starting-training) for controls, timing and performance limits.
+
 For command-line execution, copy [echo_gen_config.example.json](echo_gen_config.example.json) to `echo_gen_config.json`, replace `SOURCE_ROOT`, then run:
 
 ```bash
@@ -63,7 +65,7 @@ The new entry points do not automatically run the source notebook's optional inf
 Configuration, synthetic-data, and preprocessing/training-validation regression tests are available:
 
 ```bash
-python -m unittest -v test_echo_gen.py test_echo_gen_data.py
+python -m unittest -v test_echo_gen.py test_echo_gen_data.py test_echo_gen_preview.py
 ```
 
 Full ABRIM preprocessing and GPU training have not been verified in the delivery environment. Browser rendering also remains unverified. See [Development and validation](DEVELOPMENT.md) for the checks performed and their limits.

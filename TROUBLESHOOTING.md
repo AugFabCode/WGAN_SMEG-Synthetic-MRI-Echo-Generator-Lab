@@ -54,6 +54,13 @@ If perceptual loss reports missing weights, either supply the expected local Rad
 | Job fails immediately | Inspect the process log for dependency, source-path, cache, configuration or GPU errors |
 | Connection says disconnected | Confirm the dashboard server is still running and the SSH tunnel is open |
 | Dashboard restarted but job still running | Reattachment is not implemented; inspect the existing saved log/process |
+| Preview interval control is missing | It appears under **03 · Training setup**, below early stopping, before training starts. Restart the dashboard from the updated checkout and refresh the browser |
+| No MRI preview yet | Enable previews before launch, select the running modality under **Display modality**, and wait for a training batch to complete. Standalone CLI jobs without a dashboard receiver skip capture |
+| Changed interval has no effect | Form changes apply to the next launch, not the active worker. Advanced JSON settings also take priority over the visible interval field |
+| Preview takes longer than 20 seconds | The interval gates captures; batch completion, background rendering and polling can delay display. Inspect the log for preview errors or slow batches |
+| Preview is blank or contains no masked brain | The slice is central to the current training chunk. A peripheral chunk can have no masked brain at that slice; wait for another training sample |
+| Preview disappeared after a new launch/restart | Expected: images are held only in memory and reset for each launch. There is no saved preview history |
+| Old preview files still exist | The current dashboard does not create or read preview files, but does not delete files from older versions |
 | Same settings create another run | Check paths, data fingerprints, other runtime settings and `RUN_INSTANCE` |
 | Resume does no additional epochs | `TRAINING_EPOCHS` is the final epoch limit; increase it |
 | Fresh run rejected due to checkpoints | Enable resume for that instance or clear/select a new instance |

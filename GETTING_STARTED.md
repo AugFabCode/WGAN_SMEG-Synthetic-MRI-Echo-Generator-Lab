@@ -64,7 +64,28 @@ Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
 
 Advanced JSON values override visible fields. Nested objects are replaced, not merged: supplying a `TRAINING_HYPERPARAMETERS` object requires complete entries for both modalities. **Export configuration** downloads the current form settings; it does not start a job.
 
-The monitor shows process status and a bounded tail of the log. Curves update after each completed training-and-validation epoch. During a long first epoch, an empty chart is expected; use batch messages in the log to check progress. The diagram is an architecture schematic. A separate MRI panel shows a central transversal slice from the current training batch, captured from the existing generator output used by the first critic update and published after that batch completes.
+The page is titled **WGAN_SMEG - Synthetic Multi Echo Generator - Training Suite**. Its left column contains **01 · Data & preprocessing**, **02 · Model architecture**, and **03 · Training setup**. Magnitude and phase hyperparameters are in expandable sections; magnitude is expanded initially. Batch size is fixed at 1 by the current training loop.
+
+The right column contains **WGAN-GP architecture**, **Active Run**, **Live training MRI output · transversal**, and **Process log**. The diagram is an architecture schematic. Active Run shows generator loss, critic loss, Wasserstein gap, fixed validation MAE, gradient penalty and reconstruction loss. Curves update after each completed training-and-validation epoch. During a long first epoch, empty charts are expected; use batch messages in the log to check progress.
+
+### Configure live MRI previews before starting training
+
+Both the controls and the empty preview panel are visible before any job starts. In **03 · Training setup**, below early-stopping settings:
+
+1. Enable **Live training MRI preview (central transversal slice)**.
+2. Set **Preview interval (seconds)** to **20**. The repository default is 60 seconds; the minimum is 10 seconds.
+3. Click **Start training** after preparing the data. Editing the form does not change a running worker's settings.
+4. Under **Active Run**, choose **Display modality** to select magnitude or phase for both charts and previews. A modality without a preview yet shows an empty panel.
+
+The four panels show input echo, generator output, acquired target and absolute error. They use the central transversal slice of the current training chunk, not necessarily the middle of the full volume. The generated image is the existing output used in the first critic update, published after that batch completes; no extra inference pass is requested. Input/output/target share a grayscale window; the orange error map uses its own scale. Case, echo times, epoch, batch and capture time identify the current sample. Training samples and augmentation can change between updates.
+
+Each captured panel is limited to 256 pixels per side and upscaled **3× with bicubic interpolation on a background CPU thread** before display. The page fits the resulting image to the available width, so its on-screen size depends on the browser window. Upscaling adds no acquired detail. The plane follows native acquisition orientation, without oblique resampling or anatomical left/right labels.
+
+Previews are **memory-only**: the dashboard keeps the latest image per modality and replaces it on update. No preview image files are saved. A new launch clears previews; stopping the server loses them. Configuration files, process logs and trained-model checkpoints are still saved normally. Standalone CLI training without a dashboard receiver skips preview capture.
+
+Twenty seconds is a capture interval, not a guaranteed display deadline: batch completion, rendering and dashboard polling can delay an update. The design avoids additional generator passes and bounds the transferred slice size, but an A6000 slowdown below 5% has not been measured or guaranteed. Compare representative training throughput with previews enabled and disabled on your server.
+
+If these controls are missing after updating the checkout, restart the dashboard from the updated directory and refresh the browser. An already-running worker must finish or be stopped separately before launching with updated settings; restarting the dashboard does not reconnect it.
 
 The dashboard permits one active job per project. Browser closure does not stop the worker. Restarting the dashboard loses its in-memory monitor connection to that worker; saved logs and the project lock remain. There is currently no dashboard stop button or job reattachment interface.
 
