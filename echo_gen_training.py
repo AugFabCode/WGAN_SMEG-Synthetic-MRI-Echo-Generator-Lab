@@ -1618,8 +1618,22 @@ class CEASETTrainer:
                     part = tf.gather(tf.stop_gradient(volume[0, ..., 0]), middle, axis=preview_axis)
                     stride = tf.maximum((tf.shape(part) + 255) // 256, 1)
                     return part[::stride[0], ::stride[1]]
-                preview = tf.stack([plane(inputs['echo_images'][:,0]) * plane(mask),
-                                    plane(fake_m), plane(real_m), plane(mask)])
+                # The generator sampled K=1..4 real input echoes in this batch.
+                # Gather only their central slices on the generator device so
+                # a multi-echo preview does not transfer full 3-D stacks to
+                # the critic device. Respect the echo mask for padded inputs.
+                with tf.device(self.generator_device):
+                    input_volumes = tf.stop_gradient(inputs['echo_images'][0, ..., 0])
+                    input_slices = tf.gather(input_volumes, middle, axis=preview_axis+1)
+                    stride = tf.maximum((tf.shape(input_slices)[1:] + 255) // 256, 1)
+                    input_slices = input_slices[:, ::stride[0], ::stride[1]]
+                    input_slices = tf.boolean_mask(
+                        input_slices, inputs['echo_mask'][0] > .5, axis=0)
+                mask_slice = plane(mask)
+                preview = tf.concat([
+                    input_slices * mask_slice[None, ...],
+                    tf.stack([plane(fake_m), plane(real_m), mask_slice], axis=0),
+                ], axis=0)
 
             # Full-resolution GP by default. A factor of 2 is available only
             # as an emergency memory fallback and leaves real/fake scoring at
@@ -2369,7 +2383,10 @@ def train_ceaset_modality(
                     preview_writer.submit(preview_tensor.numpy(), {
                         'run_name': RUN_NAME, 'modality': modality, 'epoch': epoch, 'batch': n+1,
                         'case_id': str(sample_meta['case_id']), 'target_te_ms': float(sample_meta['target_te_ms']),
-                        'input_te_ms': float(sample_meta['input_tes_ms'][0]),
+                        'target_echo': str(sample_meta['target_echo']),
+                        'input_tes_ms': [float(te) for te in sample_meta['input_tes_ms']],
+                        'input_echoes': [str(echo) for echo in sample_meta['input_echoes']],
+                        'regime': str(sample_meta['regime']),
                         'plane': 'transversal', 'chunk_axis': preview_axis,
                         'slice_index': int(real.shape[preview_axis+1])//2,
                         'source': 'first critic update / existing generator output',
