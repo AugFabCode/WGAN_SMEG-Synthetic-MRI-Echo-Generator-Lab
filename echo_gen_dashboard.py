@@ -85,7 +85,8 @@ class Jobs:
             if not self.settings or self.action != 'train': raise FileNotFoundError('No training preview')
             if not self.settings.get('TRAINING_PREVIEW_ENABLED', True): raise FileNotFoundError('Previews disabled')
             path = Path(self.settings['TRAINING_ROOT']) / modality / f'preview_{self.run_name}.json'
-            if path.stat().st_size > 2_000_000: raise ValueError('Preview exceeds size limit')
+            # Four 768x768 RGB panels are <9.5 MB even as uncompressed base64.
+            if path.stat().st_size > 12_000_000: raise ValueError('Preview exceeds size limit')
             payload = json.loads(path.read_text())
             if payload.get('run_name') != self.run_name or payload.get('modality') != modality:
                 raise ValueError('Preview identity mismatch')

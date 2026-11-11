@@ -64,3 +64,5 @@ When changing the pipeline:
 No dataset license or project software license is inferred here. Check the repository's license files and the applicable dataset/tool terms before redistribution; this documentation does not grant additional rights.
 
 Preview tests cover source-axis mapping, central slice extraction and transfer bounds, PNG decoding, throttling, run isolation and critic-loop metric/call-count preservation. These use synthetic arrays and an instrumented TensorFlow adapter; GPU execution and compiled-step tracing remain unverified.
+
+The preview renderer uses Pillow for independent 3× bicubic panel upscaling on the background CPU thread. Tests check exact bicubic pixels, no interpolation across panel boundaries, unchanged source arrays, and maximum-size JSON delivery. GPU capture remains bounded to 256 pixels per side; encoded image payloads and browser image memory increase with display resolution.
