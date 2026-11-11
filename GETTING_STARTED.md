@@ -64,7 +64,7 @@ Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
 
 Advanced JSON values override visible fields. Nested objects are replaced, not merged: supplying a `TRAINING_HYPERPARAMETERS` object requires complete entries for both modalities. **Export configuration** downloads the current form settings; it does not start a job.
 
-The monitor shows process status and a bounded tail of the log. Curves update after each completed training-and-validation epoch. During a long first epoch, an empty chart is expected; use batch messages in the log to check progress. The diagram is an architecture schematic, not a live tensor or generated-MRI preview.
+The monitor shows process status and a bounded tail of the log. Curves update after each completed training-and-validation epoch. During a long first epoch, an empty chart is expected; use batch messages in the log to check progress. The diagram is an architecture schematic. A separate MRI panel shows a central transversal slice from the current training batch, captured from the existing generator output used by the first critic update and published after that batch completes.
 
 The dashboard permits one active job per project. Browser closure does not stop the worker. Restarting the dashboard loses its in-memory monitor connection to that worker; saved logs and the project lock remain. There is currently no dashboard stop button or job reattachment interface.
 

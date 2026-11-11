@@ -25,7 +25,7 @@ The dashboard intentionally does not load MRI arrays or models itself. Jobs exec
 From the repository root with preprocessing dependencies installed:
 
 ```bash
-python -m unittest -v test_echo_gen.py test_echo_gen_data.py
+python -m unittest -v test_echo_gen.py test_echo_gen_data.py test_echo_gen_preview.py
 ```
 
 `test_echo_gen.py` checks configuration identity/resume, fresh instances, overwrite rejection, both cache layouts, invalid settings, dry-run side effects, data-manifest identity and separation from training imports.
@@ -62,3 +62,5 @@ When changing the pipeline:
 - Distinguish synthetic/unit checks from real data and GPU verification in pull requests.
 
 No dataset license or project software license is inferred here. Check the repository's license files and the applicable dataset/tool terms before redistribution; this documentation does not grant additional rights.
+
+Preview tests cover source-axis mapping, central slice extraction and transfer bounds, PNG decoding, throttling, run isolation and critic-loop metric/call-count preservation. These use synthetic arrays and an instrumented TensorFlow adapter; GPU execution and compiled-step tracing remain unverified.

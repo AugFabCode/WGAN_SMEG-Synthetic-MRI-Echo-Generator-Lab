@@ -1,5 +1,6 @@
 """Original CEASET architecture, sampling, WGAN-GP loss and training loop."""
 from echo_gen_preprocessing import *
+from echo_gen_preview import PreviewWriter, axial_chunk_axis
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers, regularizers
@@ -1576,7 +1577,7 @@ class CEASETTrainer:
             "target_te_ms": target_te,
         }
 
-    def _critic_update(self, inputs, real):
+    def _critic_update(self, inputs, real, preview_axis=-1):
         """
         One full-resolution WGAN-GP critic update on GPU:1.
 
@@ -1604,6 +1605,18 @@ class CEASETTrainer:
             real_m = tf.stop_gradient(tf.cast(real, tf.float32) * mask)
             # tf.identity under GPU:1 explicitly creates the cross-device edge.
             fake_m = tf.stop_gradient(tf.identity(fake_g)) * mask
+
+            # Slice the exact masked fake passed to the critic. No new generator call.
+            preview = None
+            if preview_axis >= 0:
+                volume_shape = tf.shape(fake_m)[1:4]
+                middle = volume_shape[preview_axis] // 2
+                def plane(volume):
+                    part = tf.gather(tf.stop_gradient(volume[0, ..., 0]), middle, axis=preview_axis)
+                    stride = tf.maximum((tf.shape(part) + 255) // 256, 1)
+                    return part[::stride[0], ::stride[1]]
+                preview = tf.stack([plane(inputs['echo_images'][:,0]) * plane(mask),
+                                    plane(fake_m), plane(real_m), plane(mask)])
 
             # Full-resolution GP by default. A factor of 2 is available only
             # as an emergency memory fallback and leaves real/fake scoring at
@@ -1713,7 +1726,7 @@ class CEASETTrainer:
                 ]
             )
 
-            return {
+            result = {
                 "d_loss": d_loss,
                 "d_wasserstein": wasserstein,
                 "d_gap": gap,
@@ -1723,6 +1736,9 @@ class CEASETTrainer:
                 "d_fake_score": fake_mean,
                 "d_grad_norm": tf.reduce_mean(grad_norm),
             }
+            if preview is not None:
+                result['_preview'] = preview
+            return result
 
     def _generator_update(self, inputs, real):
         """
@@ -1955,12 +1971,15 @@ class CEASETTrainer:
             "g_aux_phys_weighted": weighted,
         }
 
-    def _train_batch_impl(self, inputs, real, critic_updates=1):
+    def _train_batch_impl(self, inputs, real, critic_updates=1, preview_axis=-1):
         d_acc = None
         critic_updates = int(critic_updates)
 
-        for _ in range(critic_updates):
-            d = self._critic_update(inputs, real)
+        preview = None
+        for critic_index in range(critic_updates):
+            d = self._critic_update(inputs, real, preview_axis if critic_index == 0 else -1)
+            if '_preview' in d:
+                preview = d.pop('_preview')
             if d_acc is None:
                 d_acc = d
             else:
@@ -1982,15 +2001,18 @@ class CEASETTrainer:
         out.update(d_acc)
         out.update(g)
         out.update(g_aux)
+        if preview is not None:
+            out['_preview'] = preview
         return out
 
-    def train_batch(self, inputs, real, critic_updates: int = 1):
+    def train_batch(self, inputs, real, critic_updates: int = 1, preview_axis: int = -1):
         if int(critic_updates) < 1:
             raise ValueError("critic_updates must be >= 1")
         return self._train_batch(
             inputs,
             real,
             int(critic_updates),
+            int(preview_axis),
         )
 
     def critic_updates_for_epoch(self, epoch: int) -> int:
@@ -2267,6 +2289,8 @@ def train_ceaset_modality(
         flush=True,
     )
 
+    preview_writer = PreviewWriter(outdir / f'preview_{RUN_NAME}.json', TRAINING_PREVIEW_INTERVAL_SECONDS)
+    preview_axes = {}
     for epoch in range(int(start_epoch) + 1, int(epochs) + 1):
         critic_updates = trainer.critic_updates_for_epoch(epoch)
         if not TRAINING_USE_DIRECT_PYTHON_LOOP:
@@ -2307,18 +2331,45 @@ def train_ceaset_modality(
                 break
             data_wait_s = time.perf_counter() - data_wait_start
 
+            preview_axis = -1
+            if TRAINING_PREVIEW_ENABLED and preview_writer.due():
+                case = str(sample_meta['case_id'])
+                if case not in preview_axes:
+                    try:
+                        # Header only; chunk generation transposes source axes (1,0,2).
+                        source = _prepared_case_path(case, modality, CFG.echo_labels[0], CFG)
+                        preview_axes[case] = axial_chunk_axis(nib.load(str(source)).affine)
+                    except Exception as exc:
+                        preview_axes[case] = -1
+                        print(f'[PREVIEW] Orientation unavailable for {case}: {exc}', flush=True)
+                preview_axis = preview_axes[case]
             gpu_start = time.perf_counter()
             batch_metrics = trainer.train_batch(
                 inputs,
                 real,
                 critic_updates,
+                preview_axis=preview_axis,
             )
+            preview_tensor = batch_metrics.pop('_preview', None)
             # One synchronization point after the complete GPU batch.
             batch_metrics_np = {
                 key: float(value.numpy())
                 for key, value in batch_metrics.items()
             }
             gpu_step_s = time.perf_counter() - gpu_start
+            if preview_tensor is not None:
+                try:
+                    preview_writer.submit(preview_tensor.numpy(), {
+                        'run_name': RUN_NAME, 'modality': modality, 'epoch': epoch, 'batch': n+1,
+                        'case_id': str(sample_meta['case_id']), 'target_te_ms': float(sample_meta['target_te_ms']),
+                        'input_te_ms': float(sample_meta['input_tes_ms'][0]),
+                        'plane': 'transversal', 'chunk_axis': preview_axis,
+                        'slice_index': int(real.shape[preview_axis+1])//2,
+                        'source': 'first critic update / existing generator output',
+                    })
+                except Exception as exc:
+                    print(f'[PREVIEW] Skipped: {exc}', flush=True)
+                del preview_tensor
 
             for key, value in batch_metrics_np.items():
                 sums[key] += value
@@ -2521,6 +2572,7 @@ def train_ceaset_modality(
         "Releasing model/optimizer objects before the next modality.",
         flush=True,
     )
+    preview_writer.close()
     del trainer
     tf.keras.backend.clear_session()
     gc.collect()

@@ -10,7 +10,7 @@ import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timezone
 
 HERE = Path(__file__).resolve().parent
@@ -66,11 +66,30 @@ class Jobs:
                 for modality in self.settings['TRAINING_MODALITIES_TO_RUN']:
                     p = Path(self.settings['TRAINING_ROOT']) / modality / f'history_{self.run_name}.csv'
                     if p.is_file(): histories[modality] = list(csv.DictReader(io.StringIO(p.read_text())))
-            return {'state':'idle' if not self.process else 'running' if code is None else 'completed' if code == 0 else 'failed',
+            previews = {}
+            if self.settings and self.action == 'train' and self.settings.get('TRAINING_PREVIEW_ENABLED', True):
+                for modality in self.settings['TRAINING_MODALITIES_TO_RUN']:
+                    path = Path(self.settings['TRAINING_ROOT']) / modality / f'preview_{self.run_name}.json'
+                    if path.is_file():
+                        stat = path.stat()
+                        previews[modality] = f'{stat.st_mtime_ns}-{stat.st_size}'
+            return {'previews': previews, 'state':'idle' if not self.process else 'running' if code is None else 'completed' if code == 0 else 'failed',
                     'exit_code':code, 'action':self.action, 'run_name':self.run_name, 'log':text,
                     'histories':histories, 'project':str(self.project),
                     'run_instance': self.settings.get('RUN_INSTANCE') if self.settings else '',
                     'model_root': self.settings.get('TRAINING_MODEL_ROOT') if self.settings else None}
+
+    def preview(self, modality):
+        if modality not in ('magnitude', 'phase'): raise ValueError('Invalid modality')
+        with self.lock:
+            if not self.settings or self.action != 'train': raise FileNotFoundError('No training preview')
+            if not self.settings.get('TRAINING_PREVIEW_ENABLED', True): raise FileNotFoundError('Previews disabled')
+            path = Path(self.settings['TRAINING_ROOT']) / modality / f'preview_{self.run_name}.json'
+            if path.stat().st_size > 2_000_000: raise ValueError('Preview exceeds size limit')
+            payload = json.loads(path.read_text())
+            if payload.get('run_name') != self.run_name or payload.get('modality') != modality:
+                raise ValueError('Preview identity mismatch')
+            return payload
 
 
 def serve(project, port):
@@ -96,6 +115,11 @@ def serve(project, port):
                 return self.reply(200,page,'text/html')
             if path == '/api/defaults': return self.reply(200,json.loads((HERE/'echo_gen_defaults.json').read_text()))
             if path == '/api/status': return self.reply(200,jobs.status())
+            if path == '/api/preview':
+                try:
+                    return self.reply(200,jobs.preview(parse_qs(urlparse(self.path).query).get('modality',[''])[0]))
+                except FileNotFoundError as exc: return self.reply(404,{'error':str(exc)})
+                except (ValueError, OSError) as exc: return self.reply(400,{'error':str(exc)})
             self.reply(404, {'error':'Not found'})
         def do_POST(self):
             if not self.trusted() or self.headers.get('X-Echo-Token') != token: return self.reply(403,{'error':'Invalid request token'})

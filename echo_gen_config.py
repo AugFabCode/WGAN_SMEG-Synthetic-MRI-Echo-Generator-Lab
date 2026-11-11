@@ -585,13 +585,17 @@ def validate_settings():
     if set(probs) != set(range(MIN_INPUT_ECHOES,MAX_INPUT_ECHOES+1)) or any(v < 0 for v in probs.values()) or abs(sum(probs.values())-1)>1e-6:
         raise ValueError('Input-count probabilities must cover the selected echo counts and sum to one')
 
+TRAINING_PREVIEW_ENABLED = _setting('TRAINING_PREVIEW_ENABLED', True)
+TRAINING_PREVIEW_INTERVAL_SECONDS = _setting('TRAINING_PREVIEW_INTERVAL_SECONDS', 60.0)
+if TRAINING_PREVIEW_INTERVAL_SECONDS < 10:
+    raise ValueError('Training preview interval must be at least 10 seconds')
 RUN_INSTANCE = _setting('RUN_INSTANCE', '')
 if not isinstance(RUN_INSTANCE, str) or (RUN_INSTANCE and not __import__('re').fullmatch(r'[A-Za-z0-9_-]{1,64}',RUN_INSTANCE)):
     raise ValueError('RUN_INSTANCE must be at most 64 letters, digits, underscores or hyphens')
 validate_settings()
 RESOLVED_CONFIGURATION = {k: v for k,v in list(globals().items()) if k.isupper() and not k.startswith('_')}
 # The epoch limit can be extended on resume; all architecture/loss/data settings remain isolated.
-_identity = {k:v for k,v in RESOLVED_CONFIGURATION.items() if k not in {'PIPELINE_ACTION','TRAINING_EPOCHS','TRAINING_RESUME','RUN_INSTANCE'}}
+_identity = {k:v for k,v in RESOLVED_CONFIGURATION.items() if k not in {'PIPELINE_ACTION','TRAINING_EPOCHS','TRAINING_RESUME','RUN_INSTANCE','TRAINING_PREVIEW_ENABLED','TRAINING_PREVIEW_INTERVAL_SECONDS'}}
 _data_fingerprints = {}
 for _p in (REFERENCE_ROOT / 'derived_data_signature.json', TRAIN_EVAL_SPLIT_MANIFEST_XLSX, CEASET_STATS_CSV, CEASET_CHUNK_MANIFEST_CSV, CEASET_FAST_NPY_MANIFEST_CSV):
     if _p.is_file():
