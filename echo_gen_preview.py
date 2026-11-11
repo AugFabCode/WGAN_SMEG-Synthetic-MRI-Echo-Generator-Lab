@@ -1,11 +1,11 @@
 """Bounded CPU-only image publishing for existing training tensors. No TensorFlow import."""
 import base64
 import json
-from pathlib import Path
 import struct
 import threading
 import time
 import zlib
+from urllib.request import Request, urlopen
 import numpy as np
 from PIL import Image
 
@@ -69,10 +69,11 @@ def render_preview(planes, metadata):
 
 class PreviewWriter:
     """At most one small CPU snapshot in flight; never queue training tensors."""
-    def __init__(self, path, interval=60.):
-        self.path=Path(path); self.interval=interval; self.last=-float('inf'); self.thread=None
+    def __init__(self, url=None, token=None, interval=60.):
+        self.url=url; self.token=token; self.interval=interval
+        self.last=-float('inf'); self.thread=None
     def due(self):
-        return time.monotonic()-self.last >= self.interval and not (self.thread and self.thread.is_alive())
+        return bool(self.url and self.token) and time.monotonic()-self.last >= self.interval and not (self.thread and self.thread.is_alive())
     def submit(self, planes, metadata):
         if not self.due(): return False
         snapshot=np.array(planes,dtype=np.float32,copy=True)
@@ -80,10 +81,10 @@ class PreviewWriter:
         def publish():
             try:
                 payload=render_preview(snapshot,metadata)
-                self.path.parent.mkdir(parents=True,exist_ok=True)
-                temp=self.path.with_suffix('.tmp')
-                temp.write_text(json.dumps(payload,allow_nan=False))
-                temp.replace(self.path)
+                request=Request(self.url, data=json.dumps(payload,allow_nan=False).encode(),
+                                headers={'Content-Type':'application/json','X-Echo-Preview-Token':self.token}, method='POST')
+                with urlopen(request, timeout=2) as response:
+                    response.read(1024)
             except Exception as exc:
                 print(f'[PREVIEW] Skipped: {exc}',flush=True)
         self.thread=threading.Thread(target=publish,name='echo-preview',daemon=True)

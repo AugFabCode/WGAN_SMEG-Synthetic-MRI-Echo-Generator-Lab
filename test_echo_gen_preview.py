@@ -3,6 +3,7 @@ import ast
 import json
 import tempfile
 import unittest
+from unittest.mock import patch, MagicMock
 from pathlib import Path
 import numpy as np
 from echo_gen_preview import axial_chunk_axis, render_preview, PreviewWriter
@@ -11,6 +12,10 @@ from echo_gen_dashboard import Jobs
 ROOT=Path(__file__).resolve().parent
 
 class PreviewTests(unittest.TestCase):
+    def job(self, tmp):
+        jobs=Jobs(Path(tmp));jobs.settings={'TRAINING_ROOT':tmp,'TRAINING_MODALITIES_TO_RUN':['magnitude']}
+        jobs.action='train';jobs.run_name='current';jobs.preview_token='test-token'
+        return jobs
     def test_axial_axis_accounts_for_chunk_transpose(self):
         self.assertEqual(axial_chunk_axis(np.eye(4)),2)
         affine=np.eye(4);affine[:3,:3]=np.eye(3)[:,[2,0,1]]
@@ -57,33 +62,47 @@ class PreviewTests(unittest.TestCase):
         encoded=json.dumps(payload)
         self.assertLess(len(encoded.encode()),12_000_000)
         with tempfile.TemporaryDirectory() as tmp:
-            jobs=Jobs(Path(tmp));jobs.settings={'TRAINING_ROOT':tmp};jobs.action='train';jobs.run_name='current'
-            folder=Path(tmp)/'magnitude';folder.mkdir()
-            (folder/'preview_current.json').write_text(encoded)
+            jobs=self.job(tmp)
+            jobs.accept_preview(payload,'test-token')
+            self.assertEqual(list(Path(tmp).iterdir()),[])
             self.assertEqual(jobs.preview('magnitude')['display_scale'],3)
     def test_empty_mask_and_nonfinite(self):
         result=render_preview(np.zeros((4,16,16)),{'modality':'magnitude'})
         self.assertFalse(result['has_brain'])
         with self.assertRaises(ValueError):render_preview(np.full((4,16,16),np.nan),{'modality':'magnitude'})
-    def test_async_single_file_and_throttle(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path=Path(tmp)/'preview_test.json';writer=PreviewWriter(path,interval=60)
+    def test_async_memory_publish_and_throttle(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('echo_gen_preview.urlopen') as send:
+            send.return_value.__enter__.return_value.read.return_value=b'{}'
+            writer=PreviewWriter('http://127.0.0.1:8765/api/preview','test-token',interval=60)
             self.assertTrue(writer.submit(np.ones((4,8,8)),{'modality':'magnitude','run_name':'test'}))
             self.assertFalse(writer.submit(np.ones((4,8,8)),{'modality':'magnitude'}))
-            writer.close();self.assertEqual(json.loads(path.read_text())['run_name'],'test')
-            self.assertEqual(len(list(Path(tmp).iterdir())),1)
+            writer.close()
+            request=send.call_args.args[0]
+            self.assertEqual(json.loads(request.data)['run_name'],'test')
+            self.assertEqual(request.get_header('X-echo-preview-token'),'test-token')
+            self.assertEqual(list(Path(tmp).iterdir()),[])
+    def test_no_receiver_skips_preview(self):
+        writer=PreviewWriter()
+        self.assertFalse(writer.due())
+        self.assertFalse(writer.submit(np.ones((4,8,8)),{}))
     def test_endpoint_isolated_to_active_run(self):
         with tempfile.TemporaryDirectory() as tmp:
-            jobs=Jobs(Path(tmp));jobs.settings={'TRAINING_ROOT':tmp,'TRAINING_MODALITIES_TO_RUN':['magnitude']}
-            jobs.action='train';jobs.run_name='current'
-            folder=Path(tmp)/'magnitude';folder.mkdir()
-            p=folder/'preview_current.json';p.write_text(json.dumps({'run_name':'current','modality':'magnitude','image':'small'}))
+            jobs=self.job(tmp)
+            payload={'run_name':'current','modality':'magnitude','image':'data:image/png;base64,first'}
+            with self.assertRaises(PermissionError):jobs.accept_preview(payload,'wrong')
+            jobs.accept_preview(payload,'test-token')
             self.assertEqual(jobs.preview('magnitude')['run_name'],'current')
             self.assertIn('magnitude',jobs.status()['previews'])
             self.assertNotIn('image',json.dumps(jobs.status()))
+            jobs.accept_preview(dict(payload,image='data:image/png;base64,second'),'test-token')
+            self.assertEqual(len(jobs.previews),1)
+            self.assertEqual(jobs.preview('magnitude')['image'],'data:image/png;base64,second')
+            self.assertEqual(jobs.status()['previews']['magnitude'],2)
+            self.assertEqual(list(Path(tmp).iterdir()),[])
             with self.assertRaises(ValueError):jobs.preview('../../secrets')
             jobs.run_name='other'
             with self.assertRaises(FileNotFoundError):jobs.preview('magnitude')
+            with self.assertRaises(ValueError):jobs.accept_preview(payload,'test-token')
     def test_critic_loop_preserves_metrics_and_call_counts(self):
         # Execute the actual orchestration method with tiny instrumented updates.
         tree=ast.parse((ROOT/'echo_gen_training.py').read_text())
