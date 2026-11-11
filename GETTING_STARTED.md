@@ -83,6 +83,25 @@ Both the controls and the empty preview panel are visible before any job starts.
 
 The live preview shows **1–4 acquired input mid-slices according to the actual sampled stack**, then generated target, acquired target and absolute error. Input panels are individually labeled with their acquired echo name and physical TE (ms), while generated/target/error panels use the target echo and TE. For example, an input-count distribution of `{1:.20, 2:.20, 3:.20, 4:.40}` produces four input panels in approximately 40% of sampled batches, not every batch. The views are slices of the same training chunk; no additional generator pass is requested.
 
+If using your 38 ms TE reference and an input-stack probability of 40% for K=4, enter the following in **Advanced JSON settings** before starting a fresh training run (these are experiment settings, not changes to the repository defaults):
+
+```json
+{
+  "TE_EMBEDDING_SCALE_MS": 38.0,
+  "MIN_INPUT_ECHOES": 1,
+  "MAX_INPUT_ECHOES": 4,
+  "INPUT_COUNT_PROBABILITIES": {"1": 0.20, "2": 0.20, "3": 0.20, "4": 0.40},
+  "SAMPLING_REGIME_WEIGHTS": {
+    "forward": 0.35,
+    "interpolation": 0.30,
+    "backward": 0.20,
+    "other": 0.15
+  }
+}
+```
+
+These settings change training sampling/conditioning and therefore the checkpoint identity; use a separate run for experiments. The preview adapts to the actually selected K for each batch regardless of the probabilities.
+
 Each captured panel is at most 256 pixels per side and enlarged **3× by exact pixel replication (nearest-neighbor)** on a background CPU thread. Each original display pixel becomes nine identical pixels in a 3×3 block; there is **no bilinear or bicubic interpolation**. A responsive grid shows the images as individually labeled cards (browser display is pixelated to avoid smoothing). The first K input panels, generated output and target share a grayscale window; the orange error map has its own scale. The plane follows native acquisition orientation, without oblique resampling or anatomical left/right labels.
 
 Previews are **memory-only**: the dashboard keeps the latest image per modality and replaces it on update. No preview image files are saved. A new launch clears previews; stopping the server loses them. Configuration files, process logs and trained-model checkpoints are still saved normally. Standalone CLI training without a dashboard receiver skips preview capture.
