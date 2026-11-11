@@ -41,7 +41,9 @@ def main(action):
         else:
             import echo_gen_training as t
             t.assert_training_hardware()
-            t.validate_training_artifacts(t.CFG)
+            t.validate_training_artifacts(
+                t.CFG, sample_builder=t.make_ceaset_sample_from_configuration
+            )
             cfg.assert_direct_loop_runtime_config()
             for modality in cfg.TRAINING_MODALITIES_TO_RUN:
                 root = cfg.TRAINING_MODEL_ROOT / modality

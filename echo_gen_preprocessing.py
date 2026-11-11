@@ -934,7 +934,12 @@ def _derived_signature(cfg=CFG):
         'revision': CEASET_PIPELINE_REVISION})
 
 
-def validate_training_artifacts(cfg=CFG):
+def validate_training_artifacts(cfg=CFG, *, sample_builder=None):
+    """Validate prepared artifacts; optionally exercise a caller-supplied sampler.
+
+    Preprocessing has no dependency on the TensorFlow training module. The training
+    entry point supplies its sampler to additionally validate actual model inputs.
+    """
     marker = cfg.preprocessing_data_root/'derived_data_signature.json'
     if not marker.is_file():
         raise FileNotFoundError('Derived data has no completion marker. Run PIPELINE_ACTION="prepare" first.')
@@ -959,16 +964,17 @@ def validate_training_artifacts(cfg=CFG):
     for cid, group in stats.groupby('case_id'):
         if set(group.echo_label) != set(cfg.echo_labels) or len(group) != len(cfg.echo_labels):
             raise RuntimeError(f'{cid}: incomplete/duplicate per-echo statistics')
-    # Exercise the actual sampler (last acquired echo as target) before a long run.
-    for modality in ('magnitude','phase'):
-        for partition in ('training','eval'):
-            row = frame[frame.split == partition].iloc[0]
-            inputs, target, _ = make_ceaset_sample_from_configuration(
-                row, modality, stats, len(cfg.echo_labels)-1, [0,1,2])
-            if not all(np.all(np.isfinite(a)) for a in [target, *inputs.values()]):
-                raise RuntimeError('Non-finite training sample')
-            if any(s % 8 for s in target.shape[:3]) or not inputs['brain_mask'].any():
-                raise RuntimeError('Invalid training chunk geometry/mask')
+    if sample_builder is not None:
+        # Exercise the actual sampler (last acquired echo as target) before a long run.
+        for modality in ('magnitude','phase'):
+            for partition in ('training','eval'):
+                row = frame[frame.split == partition].iloc[0]
+                inputs, target, _ = sample_builder(
+                    row, modality, stats, len(cfg.echo_labels)-1, [0,1,2])
+                if not all(np.all(np.isfinite(a)) for a in [target, *inputs.values()]):
+                    raise RuntimeError('Non-finite training sample')
+                if any(s % 8 for s in target.shape[:3]) or not inputs['brain_mask'].any():
+                    raise RuntimeError('Invalid training chunk geometry/mask')
     print(f'[READY] {len(split)} cases, {len(frame)} chunks, {len(cfg.echo_labels)} acquired echoes.')
     return frame
 
