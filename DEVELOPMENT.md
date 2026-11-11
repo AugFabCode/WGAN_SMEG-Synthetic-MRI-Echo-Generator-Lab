@@ -16,7 +16,7 @@
 | `echo_gen_dashboard.py` | Local HTTP server, subprocess launch and monitoring |
 | `echo_gen_dashboard.html` | Configuration form, architecture schematic, curves, MRI preview panel and logs |
 | `echo_gen_control.py` | Cooperative stop request and safe-boundary check shared by runner/training |
-| `echo_gen_preview.py` | Bounded central-slice extraction, background CPU rendering, 2× bilinear upscaling and in-memory delivery |
+| `echo_gen_preview.py` | Bounded central-slice extraction, background CPU rendering, 2× pixel-replicated upscaling and in-memory delivery |
 
 The preprocessing module must remain importable without TensorFlow. Its artifact validator accepts an optional `sample_builder` callback. Preprocessing validates prepared artifacts without that callback; the training runner supplies `make_ceaset_sample_from_configuration` so actual model-input checks still run before training. This avoids relying on another module's globals after the notebook split.
 
@@ -67,6 +67,6 @@ No dataset license or project software license is inferred here. Check the repos
 
 Preview tests cover source-axis mapping, central slice extraction and transfer bounds, PNG decoding, throttling, run isolation and critic-loop metric/call-count preservation. These use synthetic arrays and an instrumented TensorFlow adapter; GPU execution and compiled-step tracing remain unverified.
 
-The preview renderer uses Pillow for independent 2× bilinear panel upscaling on the background CPU thread. Tests check exact bilinear pixels, no interpolation across panel boundaries, unchanged source arrays, and maximum-size in-memory JSON delivery. Publisher, authentication, latest-only replacement and disabled-without-receiver tests verify the transient preview path. GPU capture remains bounded to 256 pixels per side; encoded image payloads and browser image memory increase with display resolution.
+The preview renderer uses NumPy repetition for independent 2× pixel-replicated panel upscaling on the background CPU thread. Tests check identical 2×2 pixel blocks, no interpolation across panel boundaries, unchanged source arrays, and maximum-size in-memory JSON delivery. Publisher, authentication, latest-only replacement and disabled-without-receiver tests verify the transient preview path. GPU capture remains bounded to 256 pixels per side; encoded image payloads and browser image memory increase with display resolution.
 
 Partition tests cover 70/15/15 allocation, deterministic rounding, small cohorts, session isolation, saved-setting validation, explicit legacy migration, backup preservation and refusal to repartition during training. Stop tests cover idempotent requests and a subprocess runner interrupted with SIGINT, including project-lock cleanup and preservation of an existing checkpoint. The subprocess uses a synthetic training adapter; real GPU interruption remains to be verified.

@@ -32,12 +32,12 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(im.size,(640,128))
         self.assertEqual(result['panel_shape'],[64,80])
         self.assertEqual(result['display_panel_shape'],[128,160])
-        self.assertEqual(result['display_interpolation'],'bilinear')
+        self.assertEqual(result['display_interpolation'],'nearest')
         self.assertEqual(result['display_range'][0],-result['display_range'][1])
         np.testing.assert_array_equal(np.array(im)[:,160:320],np.array(im)[:,320:480])
         self.assertFalse(np.array(im)[:,480:].any())
         with self.assertRaises(ValueError):render_preview(np.zeros((4,257,10)),meta)
-    def test_bilinear_pixels_and_panel_isolation(self):
+    def test_exact_pixel_replication_and_panel_isolation(self):
         from PIL import Image
         import base64,io
         x=np.tile(np.array([0.,0.,1.,1.,0.,1.],np.float32),(5,1))
@@ -46,7 +46,11 @@ class PreviewTests(unittest.TestCase):
         result=render_preview(planes,{'modality':'magnitude'})
         actual=np.array(Image.open(io.BytesIO(base64.b64decode(result['image'].split(',')[1]))))
         rgb=np.repeat((x[...,None]*255).astype(np.uint8),3,axis=-1)
-        expected=np.array(Image.fromarray(rgb).resize((12,10),Image.Resampling.BILINEAR))
+        expected=np.repeat(np.repeat(rgb,2,axis=0),2,axis=1)
+        for y in range(rgb.shape[0]):
+            for x in range(rgb.shape[1]):
+                block=actual[2*y:2*y+2,2*x:2*x+2]
+                self.assertTrue((block == rgb[y,x]).all())
         np.testing.assert_array_equal(actual[:,:12],expected)
         self.assertFalse(actual[:,12:24].any())
         self.assertTrue((actual[:,24:36]==255).all())
