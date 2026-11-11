@@ -61,6 +61,8 @@ If perceptual loss reports missing weights, either supply the expected local Rad
 | Preview is blank or contains no masked brain | The slice is central to the current training chunk. A peripheral chunk can have no masked brain at that slice; wait for another training sample |
 | Preview disappeared after a new launch/restart | Expected: images are held only in memory and reset for each launch. There is no saved preview history |
 | Old preview files still exist | The current dashboard does not create or read preview files, but does not delete files from older versions |
+| Legacy or changed partition settings | Enable the partition rebuild checkbox and run preprocessing. This archives the old workbook and requires rebuilding derived caches; old models must not be reused for the new split |
+| Stop remains at stopping | Wait for the active GPU call, data read or checkpoint write to finish. There is no forced-kill fallback; check the worker log/process if it is stuck |
 | Same settings create another run | Check paths, data fingerprints, other runtime settings and `RUN_INSTANCE` |
 | Resume does no additional epochs | `TRAINING_EPOCHS` is the final epoch limit; increase it |
 | Fresh run rejected due to checkpoints | Enable resume for that instance or clear/select a new instance |
@@ -77,4 +79,4 @@ If starting another job is blocked:
 2. Verify on the training host whether that worker is still running. Do not assume it stopped because the browser closed.
 3. Only after confirming the worker has stopped, remove the stale lock and start a new job.
 
-Do not remove an active worker's lock. There is no automatic stale-lock deletion or dashboard stop action. Interrupted training resumes from the last successfully saved matching checkpoint, not necessarily the most recent batch. Preserve the saved configuration and instance when resuming.
+Do not remove an active worker's lock. There is no automatic stale-lock deletion. **Stop training** requests a cooperative stop and releases the lock when the worker exits normally through the interruption handler. Interrupted training resumes from the last successfully saved matching checkpoint, not necessarily the most recent batch. Preserve the saved configuration and instance when resuming.

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import signal
 import subprocess
 import sys
 import threading
@@ -27,6 +28,7 @@ class Jobs:
         self.log = None
         self.settings = None
         self.action = None
+        self.stop_requested = False
         self.run_name = None
         self.lock = threading.Lock()
 
@@ -55,6 +57,7 @@ class Jobs:
             self.run_name = resolved['RUN_NAME']
             self.settings = resolved
             self.action = action
+            self.stop_requested = False
             self.previews = {}
             self.preview_versions = {}
             self.preview_token = secrets.token_urlsafe(32)
@@ -63,7 +66,15 @@ class Jobs:
                 env['ECHO_GEN_PREVIEW_TOKEN'] = self.preview_token
             self.log = directory / f'dashboard_{action}_{stamp}.log'
             with self.log.open('wb') as log:
-                self.process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env)
+                self.process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+
+    def stop(self):
+        with self.lock:
+            if self.action != 'train' or not self.process or self.process.poll() is not None:
+                raise ValueError('No active training job to stop')
+            if not self.stop_requested:
+                self.process.send_signal(signal.SIGINT)
+                self.stop_requested = True
 
     def status(self):
         with self.lock:
@@ -79,7 +90,7 @@ class Jobs:
                     p = Path(self.settings['TRAINING_ROOT']) / modality / f'history_{self.run_name}.csv'
                     if p.is_file(): histories[modality] = list(csv.DictReader(io.StringIO(p.read_text())))
             previews = dict(self.preview_versions)
-            return {'previews': previews, 'state':'idle' if not self.process else 'running' if code is None else 'completed' if code == 0 else 'failed',
+            return {'previews': previews, 'state':'idle' if not self.process else ('stopping' if self.stop_requested else 'running') if code is None else 'stopped' if code in (130, -signal.SIGINT) else 'completed' if code == 0 else 'failed',
                     'exit_code':code, 'action':self.action, 'run_name':self.run_name, 'log':text,
                     'histories':histories, 'project':str(self.project),
                     'run_instance': self.settings.get('RUN_INSTANCE') if self.settings else '',
@@ -152,6 +163,12 @@ def serve(project, port):
                 except PermissionError as exc: return self.reply(403,{'error':str(exc)})
                 except (ValueError, OSError) as exc: return self.reply(400,{'error':str(exc)})
             if not self.trusted() or self.headers.get('X-Echo-Token') != token: return self.reply(403,{'error':'Invalid request token'})
+            if self.path == '/api/stop':
+                try:
+                    jobs.stop()
+                    return self.reply(200,jobs.status())
+                except (ValueError, OSError) as exc:
+                    return self.reply(400,{'error':str(exc)})
             if self.path != '/api/start': return self.reply(404,{'error':'Not found'})
             try:
                 size = int(self.headers.get('Content-Length','0'))

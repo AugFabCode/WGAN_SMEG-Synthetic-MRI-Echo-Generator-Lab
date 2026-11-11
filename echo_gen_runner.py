@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import sys
+import signal
+from echo_gen_control import request_stop, reset_stop, check_training_stop, TrainingStopped
 import uuid
 from datetime import datetime, timezone
 
@@ -31,6 +33,10 @@ def main(action):
         raise RuntimeError(f'Another job owns {lock}. If a process crashed, verify it has stopped before removing this lock.')
     with os.fdopen(fd, 'w') as f:
         json.dump({'pid':os.getpid(),'token':token,'action':action}, f)
+    old_handler = None
+    if action == 'train':
+        reset_stop()
+        old_handler = signal.signal(signal.SIGINT, request_stop)
     try:
         if action == 'prepare':
             import echo_gen_preprocessing as p
@@ -40,12 +46,14 @@ def main(action):
             p.validate_training_artifacts(p.CFG)
         else:
             import echo_gen_training as t
+            check_training_stop()
             t.assert_training_hardware()
             t.validate_training_artifacts(
                 t.CFG, sample_builder=t.make_ceaset_sample_from_configuration
             )
             cfg.assert_direct_loop_runtime_config()
             for modality in cfg.TRAINING_MODALITIES_TO_RUN:
+                check_training_stop()
                 root = cfg.TRAINING_MODEL_ROOT / modality
                 root.mkdir(parents=True, exist_ok=True)
                 metadata = root / f'configuration_{cfg.RUN_NAME}.json'
@@ -54,7 +62,12 @@ def main(action):
                 resolved['repository'] = 'https://github.com/AugFabCode/WGAN_SMEG-Synthetic-MRI-Echo-Generator-Lab'
                 metadata.write_text(json.dumps(resolved, indent=2, default=str)+'\n')
                 t.train_ceaset_modality(modality)
+    except TrainingStopped as exc:
+        print(f'[STOPPED] {exc}', flush=True)
+        raise SystemExit(130)
     finally:
+        if old_handler is not None:
+            signal.signal(signal.SIGINT, old_handler)
         if lock.exists() and json.loads(lock.read_text()).get('token') == token:
             lock.unlink()
 

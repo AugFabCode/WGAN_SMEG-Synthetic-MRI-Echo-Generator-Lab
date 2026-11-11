@@ -29,15 +29,15 @@ class PreviewTests(unittest.TestCase):
         meta={'modality':'phase'}
         result=render_preview(np.stack([x,x,x,np.ones_like(x)]),meta)
         im=Image.open(io.BytesIO(base64.b64decode(result['image'].split(',')[1])))
-        self.assertEqual(im.size,(960,192))
+        self.assertEqual(im.size,(640,128))
         self.assertEqual(result['panel_shape'],[64,80])
-        self.assertEqual(result['display_panel_shape'],[192,240])
-        self.assertEqual(result['display_interpolation'],'bicubic')
+        self.assertEqual(result['display_panel_shape'],[128,160])
+        self.assertEqual(result['display_interpolation'],'bilinear')
         self.assertEqual(result['display_range'][0],-result['display_range'][1])
-        np.testing.assert_array_equal(np.array(im)[:,240:480],np.array(im)[:,480:720])
-        self.assertFalse(np.array(im)[:,720:].any())
+        np.testing.assert_array_equal(np.array(im)[:,160:320],np.array(im)[:,320:480])
+        self.assertFalse(np.array(im)[:,480:].any())
         with self.assertRaises(ValueError):render_preview(np.zeros((4,257,10)),meta)
-    def test_bicubic_pixels_and_panel_isolation(self):
+    def test_bilinear_pixels_and_panel_isolation(self):
         from PIL import Image
         import base64,io
         x=np.tile(np.array([0.,0.,1.,1.,0.,1.],np.float32),(5,1))
@@ -46,10 +46,10 @@ class PreviewTests(unittest.TestCase):
         result=render_preview(planes,{'modality':'magnitude'})
         actual=np.array(Image.open(io.BytesIO(base64.b64decode(result['image'].split(',')[1]))))
         rgb=np.repeat((x[...,None]*255).astype(np.uint8),3,axis=-1)
-        expected=np.array(Image.fromarray(rgb).resize((18,15),Image.Resampling.BICUBIC))
-        np.testing.assert_array_equal(actual[:,:18],expected)
-        self.assertFalse(actual[:,18:36].any())
-        self.assertTrue((actual[:,36:54]==255).all())
+        expected=np.array(Image.fromarray(rgb).resize((12,10),Image.Resampling.BILINEAR))
+        np.testing.assert_array_equal(actual[:,:12],expected)
+        self.assertFalse(actual[:,12:24].any())
+        self.assertTrue((actual[:,24:36]==255).all())
         np.testing.assert_array_equal(planes,before)
     def test_full_size_payload_accepted_by_dashboard(self):
         from PIL import Image
@@ -58,14 +58,14 @@ class PreviewTests(unittest.TestCase):
         planes=rng.normal(size=(4,256,256)).astype(np.float32);planes[3]=1
         payload=render_preview(planes,{'modality':'magnitude','run_name':'current'})
         im=Image.open(io.BytesIO(base64.b64decode(payload['image'].split(',')[1])))
-        self.assertEqual(im.size,(3072,768))
+        self.assertEqual(im.size,(2048,512))
         encoded=json.dumps(payload)
         self.assertLess(len(encoded.encode()),12_000_000)
         with tempfile.TemporaryDirectory() as tmp:
             jobs=self.job(tmp)
             jobs.accept_preview(payload,'test-token')
             self.assertEqual(list(Path(tmp).iterdir()),[])
-            self.assertEqual(jobs.preview('magnitude')['display_scale'],3)
+            self.assertEqual(jobs.preview('magnitude')['display_scale'],2)
     def test_empty_mask_and_nonfinite(self):
         result=render_preview(np.zeros((4,16,16)),{'modality':'magnitude'})
         self.assertFalse(result['has_brain'])

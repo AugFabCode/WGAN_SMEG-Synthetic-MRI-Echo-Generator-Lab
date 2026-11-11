@@ -6,6 +6,8 @@ from tensorflow import keras
 from tensorflow.keras import layers, regularizers
 
 
+from echo_gen_control import check_training_stop
+
 def configure_training_devices():
     requested = PIPELINE_ACTION in {'train', 'all'}
     if TRAINING_DEVICE_MODE not in {'dual_gpu', 'single_gpu', 'cpu'}:
@@ -1221,6 +1223,7 @@ def evaluate_ceaset_direct(
     )
 
     for batch_idx, (inputs, real, _meta) in enumerate(iterator, start=1):
+        check_training_stop()
         fake = generator(inputs, training=False)
 
         # Explicit synchronization occurs here.
@@ -2125,6 +2128,7 @@ def evaluate_dataset_basic(
     start = time.time()
 
     for batch_idx, (inputs, real) in enumerate(dataset, start=1):
+        check_training_stop()
         if max_batches is not None and batch_idx > int(max_batches):
             break
 
@@ -2292,6 +2296,7 @@ def train_ceaset_modality(
     preview_writer = PreviewWriter(os.environ.get('ECHO_GEN_PREVIEW_URL'), os.environ.get('ECHO_GEN_PREVIEW_TOKEN'), TRAINING_PREVIEW_INTERVAL_SECONDS)
     preview_axes = {}
     for epoch in range(int(start_epoch) + 1, int(epochs) + 1):
+        check_training_stop()
         critic_updates = trainer.critic_updates_for_epoch(epoch)
         if not TRAINING_USE_DIRECT_PYTHON_LOOP:
             raise RuntimeError(
@@ -2324,6 +2329,7 @@ def train_ceaset_modality(
         while True:
             # Time data wait separately from GPU compute. The first three batches
             # are always printed so an I/O bottleneck cannot hide for hours.
+            check_training_stop()
             data_wait_start = time.perf_counter()
             try:
                 inputs, real, sample_meta = next(iterator)
@@ -2331,6 +2337,7 @@ def train_ceaset_modality(
                 break
             data_wait_s = time.perf_counter() - data_wait_start
 
+            check_training_stop()
             preview_axis = -1
             if TRAINING_PREVIEW_ENABLED and preview_writer.due():
                 case = str(sample_meta['case_id'])
@@ -2557,6 +2564,7 @@ def train_ceaset_modality(
 
         gc.collect()
 
+    check_training_stop()
     # Always retain the final completed epoch, including early stopping between save intervals.
     if history:
         final_epoch = max(int(item['epoch']) for item in history)

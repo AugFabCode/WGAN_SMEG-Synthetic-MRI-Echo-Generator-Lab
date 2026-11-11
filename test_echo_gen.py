@@ -23,6 +23,14 @@ class ConfigurationTests(unittest.TestCase):
             self.assertNotEqual(p.returncode,0);return p.stderr
         self.assertEqual(p.returncode,0,p.stderr)
         return json.loads(p.stdout[p.stdout.index('{'):])
+    def test_partition_config_validation_and_identity(self):
+        base=self.resolve()
+        self.assertEqual([base[k] for k in ('TRAINING_SPLIT_PERCENT','EVALUATION_SPLIT_PERCENT','TEST_SPLIT_PERCENT')],[70,15,15])
+        changed=self.resolve({'TRAINING_SPLIT_PERCENT':60,'TEST_SPLIT_PERCENT':25})
+        self.assertNotEqual(base['RUN_NAME'],changed['RUN_NAME'])
+        for settings in ({'TEST_SPLIT_PERCENT':30},{'TRAINING_SPLIT_PERCENT':0,'EVALUATION_SPLIT_PERCENT':85}, {'TEST_SPLIT_PERCENT':-1}, {'TEST_SPLIT_PERCENT':True}, {'TRAIN_EVAL_SPLIT_FRACTION':.2}):
+            self.resolve(settings,ok=False)
+
     def test_configuration_names_and_resume(self):
         first=self.resolve()
         self.assertEqual(first['RUN_NAME'],self.resolve({'TRAINING_EPOCHS':60})['RUN_NAME'])

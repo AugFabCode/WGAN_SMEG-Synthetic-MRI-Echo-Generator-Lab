@@ -55,16 +55,16 @@ def render_preview(planes, metadata):
     # Resample each display panel independently, avoiding interpolation across seams.
     # Training arrays, error values and GPU capture size remain unchanged.
     panels = [gray(inp), gray(generated), gray(target), heat]
-    display_size = (inp.shape[1] * 3, inp.shape[0] * 3)
+    display_size = (inp.shape[1] * 2, inp.shape[0] * 2)
     rgb = np.concatenate([
-        np.asarray(Image.fromarray(panel).resize(display_size, resample=Image.Resampling.BICUBIC))
+        np.asarray(Image.fromarray(panel).resize(display_size, resample=Image.Resampling.BILINEAR))
         for panel in panels
     ], axis=1)
     return dict(metadata, image='data:image/png;base64,'+base64.b64encode(png_rgb(rgb)).decode(),
                 display_range=[low,high],error_range=[0.,error_max],has_brain=bool(mask.any()),
                 units='sample-normalized',panel_shape=list(inp.shape),
-                display_panel_shape=[inp.shape[0]*3,inp.shape[1]*3],
-                display_scale=3,display_interpolation='bicubic',captured_at=time.time())
+                display_panel_shape=[inp.shape[0]*2,inp.shape[1]*2],
+                display_scale=2,display_interpolation='bilinear',captured_at=time.time())
 
 
 class PreviewWriter:
