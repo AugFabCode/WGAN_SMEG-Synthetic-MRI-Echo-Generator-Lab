@@ -61,6 +61,33 @@ class PartitionTests(unittest.TestCase):
                     p.load_or_create_ceaset_split()
                     self.assertEqual(len(list(Path(tmp).glob('*.backup-*.xlsx'))),1)
 
+    def test_small_dataset_two_way_legacy_workbook_reused_without_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=self.fixture(tmp)
+            cases=p._available_complete_case_ids()
+            subjects=sorted({p._training_patient_key_from_case_id(case) for case in cases})
+            assigned=p.partition_subjects(subjects,[80,20,0],42)
+            frame=pd.DataFrame([{'case_id':c,'patient_key':p._training_patient_key_from_case_id(c),
+                                 'split':'test' if assigned[p._training_patient_key_from_case_id(c)]=='eval' else 'train'}
+                                for c in cases])
+            with pd.ExcelWriter(path,engine='openpyxl') as writer:
+                frame.to_excel(writer,sheet_name='patient_split',index=False)
+            before=path.read_bytes()
+            with patch.object(p,'SMALL_DATASET_MODE',True),\
+                 patch.object(p,'TRAINING_SPLIT_PERCENT',80.),\
+                 patch.object(p,'EVALUATION_SPLIT_PERCENT',20.),\
+                 patch.object(p,'TEST_SPLIT_PERCENT',0.):
+                result=p.load_or_create_ceaset_split()
+                self.assertEqual(result.groupby('split').patient_key.nunique().to_dict(),
+                                 {'training':16,'eval':4})
+                self.assertEqual(before,path.read_bytes())
+                self.assertFalse(list(Path(tmp).glob('*.backup-*.xlsx')))
+                # A wrong legacy ratio is rejected rather than silently accepted.
+                with patch.object(p,'TRAINING_SPLIT_PERCENT',75.),\
+                     patch.object(p,'EVALUATION_SPLIT_PERCENT',25.):
+                    with self.assertRaisesRegex(ValueError,'REBUILD_PATIENT_SPLIT'):
+                        p.load_or_create_ceaset_split()
+
     def test_legacy_labels_and_patient_leakage(self):
         self.assertEqual(p._canonical_split_label('test'),'test')
         with tempfile.TemporaryDirectory() as tmp:
