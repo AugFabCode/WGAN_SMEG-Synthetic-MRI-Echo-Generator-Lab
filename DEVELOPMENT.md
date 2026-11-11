@@ -27,7 +27,7 @@ The dashboard intentionally does not load MRI arrays or models itself. Jobs exec
 From the repository root with preprocessing dependencies installed:
 
 ```bash
-python -m unittest -v test_echo_gen.py test_echo_gen_data.py test_echo_gen_preview.py test_echo_gen_partition.py
+python -m unittest -v test_echo_gen.py test_echo_gen_data.py test_echo_gen_preview.py test_echo_gen_partition.py test_echo_gen_events.py
 ```
 
 `test_echo_gen.py` checks configuration identity/resume, fresh instances, overwrite rejection, both cache layouts, invalid settings, dry-run side effects, data-manifest identity and separation from training imports.
@@ -70,3 +70,5 @@ Preview tests cover source-axis mapping, central slice extraction and transfer b
 The preview renderer uses NumPy repetition for independent 2× pixel-replicated panel upscaling on the background CPU thread. Tests check identical 2×2 pixel blocks, no interpolation across panel boundaries, unchanged source arrays, and maximum-size in-memory JSON delivery. Publisher, authentication, latest-only replacement and disabled-without-receiver tests verify the transient preview path. GPU capture remains bounded to 256 pixels per side; encoded image payloads and browser image memory increase with display resolution.
 
 Partition tests cover 70/15/15 allocation, deterministic rounding, small cohorts, session isolation, saved-setting validation, explicit legacy migration, backup preservation and refusal to repartition during training. Stop tests cover idempotent requests and a subprocess runner interrupted with SIGINT, including project-lock cleanup and preservation of an existing checkpoint. The subprocess uses a synthetic training adapter; real GPU interruption remains to be verified.
+
+`echo_gen_events.py` parses the existing bounded log tail into at most 100 events with stable source/byte-position IDs, severity, category, and optional progress fields. Unknown lines remain Output events. Rendering uses `textContent`. Status omits the raw log unless `/api/status?include_log=1` is requested; no separate event history is persisted. Tests cover categories, byte-position stability, truncation, log changes, and the default opt-out.

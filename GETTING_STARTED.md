@@ -68,7 +68,7 @@ Advanced JSON values override visible fields. Nested objects are replaced, not m
 
 The page is titled **WGAN_SMEG - Synthetic Multi Echo Generator - Training Suite**. Its left column contains **01 · Data & preprocessing**, **02 · Model architecture**, and **03 · Training setup**. Magnitude and phase hyperparameters are in expandable sections; magnitude is expanded initially. Batch size is fixed at 1 by the current training loop.
 
-The right column contains **WGAN-GP architecture**, **Active Run**, **Live training MRI output · transversal**, and **Process log**. The diagram is an architecture schematic. Active Run shows generator loss, critic loss, Wasserstein gap, fixed validation MAE, gradient penalty and reconstruction loss. Curves update after each completed training-and-validation epoch. During a long first epoch, empty charts are expected; use batch messages in the log to check progress.
+The right column contains **WGAN-GP architecture**, **Active Run**, **Live training MRI output · transversal**, **Event feed**, and **Process log**. The diagram is an architecture schematic. Active Run shows generator loss, critic loss, Wasserstein gap, fixed validation MAE, gradient penalty and reconstruction loss. Curves update after each completed training-and-validation epoch. During a long first epoch, empty charts are expected; use batch messages in the log to check progress.
 
 ### Configure live MRI previews before starting training
 
@@ -138,3 +138,9 @@ ssh -L 8765:127.0.0.1:8765 user@training-host
 ```
 
 Open the same localhost URL locally. Dataset paths entered into the dashboard refer to the **training host's filesystem**. Keep the dashboard bound to localhost; it is a local process-control interface, not a public multi-user service.
+
+### Event feed and original process log
+
+The event feed is visible by default and presents recent output as categorized events: training progress, completed epochs, checkpoints, evaluation, preprocessing, setup, warnings and errors. Unrecognized lines appear as **Output**. It is a best-effort interpretation of text, not an authoritative training-state protocol. Entries appear newest first, up to 100 from the recent 32 KB of output. Original timestamps are retained if present; the feed does not invent event times. Repeated polling does not append duplicates, and switching to a new job replaces the feed.
+
+The original **Process log** section remains available. **Show original process log** is unchecked by default on each page load; check it to display the raw tail, or uncheck it to opt out again. Hidden raw output is not included in status responses. The existing full process log continues to be saved normally, so opt-out affects dashboard display only. No separate event-feed file is written and no MRI previews are saved.

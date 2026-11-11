@@ -1,5 +1,6 @@
 """Local Echo Gen dashboard; standard library only. Start in the training environment."""
 import argparse
+from echo_gen_events import parse_log_events
 import csv
 import io
 import json
@@ -76,14 +77,20 @@ class Jobs:
                 self.process.send_signal(signal.SIGINT)
                 self.stop_requested = True
 
-    def status(self):
+    def status(self, include_log=False):
         with self.lock:
             code = self.process.poll() if self.process else None
             text = ''
+            offset = 0
             if self.log and self.log.exists():
                 with self.log.open('rb') as f:
-                    f.seek(max(0, self.log.stat().st_size - 32000))
-                    text = f.read().decode('utf-8', 'replace')
+                    offset = max(0, self.log.stat().st_size - 32000)
+                    f.seek(offset)
+                    if offset:
+                        # Discard the first potentially incomplete line/UTF-8 character.
+                        f.readline(32000)
+                        offset = f.tell()
+                    text = f.read(32000).decode('utf-8', 'replace')
             histories = {}
             if self.settings and self.action == 'train':
                 for modality in self.settings['TRAINING_MODALITIES_TO_RUN']:
@@ -91,7 +98,8 @@ class Jobs:
                     if p.is_file(): histories[modality] = list(csv.DictReader(io.StringIO(p.read_text())))
             previews = dict(self.preview_versions)
             return {'previews': previews, 'state':'idle' if not self.process else ('stopping' if self.stop_requested else 'running') if code is None else 'stopped' if code in (130, -signal.SIGINT) else 'completed' if code == 0 else 'failed',
-                    'exit_code':code, 'action':self.action, 'run_name':self.run_name, 'log':text,
+                    'exit_code':code, 'action':self.action, 'run_name':self.run_name, 'log':text if include_log else '',
+                    'events':parse_log_events(text, offset=offset, source=self.log.name if self.log else ''),
                     'histories':histories, 'project':str(self.project),
                     'run_instance': self.settings.get('RUN_INSTANCE') if self.settings else '',
                     'model_root': self.settings.get('TRAINING_MODEL_ROOT') if self.settings else None}
@@ -143,7 +151,9 @@ def serve(project, port):
                 page = (HERE/'echo_gen_dashboard.html').read_text().replace('__TOKEN__',token)
                 return self.reply(200,page,'text/html')
             if path == '/api/defaults': return self.reply(200,json.loads((HERE/'echo_gen_defaults.json').read_text()))
-            if path == '/api/status': return self.reply(200,jobs.status())
+            if path == '/api/status':
+                include_log = parse_qs(urlparse(self.path).query).get('include_log', ['0'])[0] == '1'
+                return self.reply(200,jobs.status(include_log=include_log))
             if path == '/api/preview':
                 try:
                     return self.reply(200,jobs.preview(parse_qs(urlparse(self.path).query).get('modality',[''])[0]))
