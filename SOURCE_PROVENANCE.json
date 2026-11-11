@@ -1,0 +1,21 @@
+{
+  "source_notebook": "pp_to_train_echo_generator_RECENT(5).ipynb",
+  "sha256": "1541ac9cf00ee14942f19c51a647a71b874448b19d8b9b1f0818309a7f145401",
+  "repository": "https://github.com/AugFabCode/WGAN_SMEG-Synthetic-MRI-Echo-Generator-Lab",
+  "preprocessing_cells": [
+    4,
+    6,
+    8,
+    10,
+    11,
+    12,
+    14
+  ],
+  "training_cells": [
+    17,
+    19,
+    21
+  ],
+  "configuration_cell": 2,
+  "notes": "Model/loss/sampling code retained. Added independent entry points, configuration overrides, cache-path resolution, checkpoint naming, final saves and dashboard."
+}
