@@ -1,0 +1,53 @@
+{
+  "SOURCE_ROOT": "/path/to/ABRIM",
+  "PHASE_MODE": "auto",
+  "TRAINING_DEVICE_MODE": "single_gpu",
+  "TRAINING_MODALITIES_TO_RUN": [
+    "magnitude",
+    "phase"
+  ],
+  "CHUNK_GRID": [
+    5,
+    5,
+    3
+  ],
+  "CHUNK_OVERLAP_VOXELS": 20,
+  "MODEL_FILTERS": [
+    16,
+    24,
+    32,
+    48
+  ],
+  "MODEL_TE_EMBED_DIM": 48,
+  "TRAINING_EPOCHS": 40,
+  "TRAINING_BATCH_SIZE": 1,
+  "TRAINING_EVAL_BATCH_SIZE": 1,
+  "WGAN_GP_LAMBDA": 10.0,
+  "CRITIC_UPDATES_BY_MODALITY": {
+    "magnitude": 2,
+    "phase": 1
+  },
+  "TRAINING_HYPERPARAMETERS": {
+    "magnitude": {
+      "generator_lr": 3e-05,
+      "critic_lr": 0.0001,
+      "adv_weight": 0.08,
+      "rec_weight": 5.6,
+      "edge_weight": 0.1,
+      "perc_weight": 0.06,
+      "physics_residual_weight": 0.35
+    },
+    "phase": {
+      "generator_lr": 3e-05,
+      "critic_lr": 0.0001,
+      "adv_weight": 0.06,
+      "rec_weight": 5.6,
+      "edge_weight": 0.1,
+      "perc_weight": 0.03,
+      "physics_residual_weight": 0.35
+    }
+  },
+  "ENABLE_EARLY_STOPPING": true,
+  "TRAINING_RESUME": true,
+  "RUN_INSTANCE": ""
+}
