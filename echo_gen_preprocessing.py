@@ -871,6 +871,22 @@ def load_or_create_ceaset_split(cfg=CFG):
         # mode; existing 'test' labels are treated as validation, never final test.
         legacy_two_way = (SMALL_DATASET_MODE and not has_settings and
                           percentages == [80.0, 20.0, 0.0] and TRAIN_EVAL_SPLIT_SEED == 42)
+        if legacy_two_way:
+            # Only adopt an original workbook when its actual cohort and counts
+            # match the requested allocation. Otherwise follow the normal
+            # explicit backup-and-repartition path, never silently relabel.
+            old = pd.read_excel(path, sheet_name='patient_split', dtype=str)
+            if not {'case_id','patient_key','split'} <= set(old.columns):
+                legacy_two_way = False
+            else:
+                old = old[old.case_id.isin(cases)].copy()
+                labels = old['split'].map(_canonical_split_label).replace({'test':'eval'})
+                actual = old.assign(split=labels).groupby('split')['patient_key'].nunique().to_dict()
+                target = partition_subjects(expected.values(), percentages, TRAIN_EVAL_SPLIT_SEED)
+                desired = {name: list(target.values()).count(name) for name in ('training','eval')}
+                legacy_two_way = (set(old.case_id) == set(cases) and
+                                  not old.case_id.duplicated().any() and
+                                  actual == desired)
         mismatch = not legacy_two_way and any(recorded.get(k) != v for k, v in settings.items())
         if mismatch:
             if not (REBUILD_PATIENT_SPLIT and OVERWRITE_DERIVED and PIPELINE_ACTION == 'prepare'):
@@ -905,12 +921,6 @@ def load_or_create_ceaset_split(cfg=CFG):
             if row.patient_key != expected[row.case_id]:
                 raise ValueError(f'{row.case_id}: patient_key must be {expected[row.case_id]}, got {row.patient_key}')
         if legacy_two_way:
-            target = partition_subjects(expected.values(), percentages, TRAIN_EVAL_SPLIT_SEED)
-            actual_counts = frame.groupby('split')['patient_key'].nunique().to_dict()
-            target_counts = {label: list(target.values()).count(label) for label in ('training', 'eval')}
-            if actual_counts != target_counts:
-                raise ValueError('Legacy two-way split does not match the original 80/20 allocation. '
-                                 'Enable REBUILD_PATIENT_SPLIT and OVERWRITE_DERIVED to repartition.')
             print('[SPLIT] Reusing legacy two-way workbook without modifying it. '
                   'Its second partition is VALIDATION for checkpoint selection; '
                   'there is no untouched final test set.')
