@@ -820,18 +820,62 @@ def _training_patient_key_from_case_id(case_id):
 
 def _canonical_split_label(value):
     mapping = {'train':'training', 'training':'training', 'eval':'eval',
-               'validation':'eval', 'val':'eval', 'evaluation':'eval', 'test':'eval'}
+               'validation':'eval', 'val':'eval', 'evaluation':'eval', 'test':'test'}
     key = str(value).strip().lower()
     if key not in mapping:
         raise ValueError(f'Unknown partition: {value}')
     return mapping[key]
 
 
+def partition_subjects(patients, percentages, seed):
+    """Deterministic subject allocation; closest counts with nonempty active partitions."""
+    patients = sorted(set(patients))
+    weights = np.asarray(percentages, dtype=float)
+    if (weights.shape != (3,) or not np.isfinite(weights).all() or
+            (weights[:2] <= 0).any() or weights[2] < 0 or
+            not np.isclose(weights.sum(), 100., rtol=0, atol=1e-8)):
+        raise ValueError('Invalid partition percentages')
+    active = weights > 0
+    if len(patients) < int(active.sum()):
+        raise ValueError('Too few independent subjects for nonempty requested partitions')
+    target = weights * len(patients) / 100.
+    counts = active.astype(int)
+    for _ in range(len(patients) - int(counts.sum())):
+        deficits = np.where(active, target - counts, -np.inf)
+        counts[int(np.argmax(deficits))] += 1
+    np.random.default_rng(seed).shuffle(patients)
+    assignments = {}
+    offset = 0
+    for label, count in zip(('training', 'eval', 'test'), counts):
+        assignments.update({p: label for p in patients[offset:offset+count]})
+        offset += count
+    return assignments
+
+
 def load_or_create_ceaset_split(cfg=CFG):
     cases = _available_complete_case_ids(cfg)
     path = TRAIN_EVAL_SPLIT_MANIFEST_XLSX
     expected = {cid: _training_patient_key_from_case_id(cid) for cid in cases}
+    percentages = [TRAINING_SPLIT_PERCENT, EVALUATION_SPLIT_PERCENT, TEST_SPLIT_PERCENT]
+    settings = dict(zip(('training_percent', 'evaluation_percent', 'test_percent'), percentages))
+    settings['seed'] = TRAIN_EVAL_SPLIT_SEED
+    rebuild = False
     if path.is_file():
+        with pd.ExcelFile(path) as book:
+            recorded = (pd.read_excel(book, sheet_name='split_settings').iloc[0].to_dict()
+                        if 'split_settings' in book.sheet_names else {})
+        mismatch = any(recorded.get(k) != v for k, v in settings.items())
+        if mismatch:
+            if not (REBUILD_PATIENT_SPLIT and OVERWRITE_DERIVED and PIPELINE_ACTION == 'prepare'):
+                raise ValueError('Legacy or changed partition settings: enable REBUILD_PATIENT_SPLIT and OVERWRITE_DERIVED, then preprocess. Existing assignments are preserved until an explicit rebuild; do not resume old models after repartitioning.')
+            # Validate requested allocation before archiving or changing anything.
+            partition_subjects(expected.values(), percentages, TRAIN_EVAL_SPLIT_SEED)
+            import shutil, uuid
+            backup = path.with_name(path.stem + '.backup-' + uuid.uuid4().hex + path.suffix)
+            shutil.copy2(path, backup)
+            print(f'[SPLIT] Archived previous workbook: {backup}')
+            rebuild = True
+    if path.is_file() and not rebuild:
         frame = pd.read_excel(path, sheet_name='patient_split', dtype=str)
         if not {'case_id','patient_key','split'} <= set(frame.columns):
             raise ValueError(f'{path}: patient_split requires case_id, patient_key, split')
@@ -850,25 +894,20 @@ def load_or_create_ceaset_split(cfg=CFG):
             if row.patient_key != expected[row.case_id]:
                 raise ValueError(f'{row.case_id}: patient_key must be {expected[row.case_id]}, got {row.patient_key}')
     else:
-        if not CREATE_NEW_SPLIT_IF_MANIFEST_MISSING:
+        if not rebuild and not CREATE_NEW_SPLIT_IF_MANIFEST_MISSING:
             raise FileNotFoundError(path)
-        patients = sorted(set(expected.values()))
-        if len(patients) < 2:
-            raise ValueError('At least two independent subjects are required for train/evaluation splitting.')
-        if not 0 < TRAIN_EVAL_SPLIT_FRACTION < 1:
-            raise ValueError('TRAIN_EVAL_SPLIT_FRACTION must be between 0 and 1')
-        np.random.default_rng(TRAIN_EVAL_SPLIT_SEED).shuffle(patients)
-        n_eval = min(len(patients)-1, max(1, round(len(patients)*TRAIN_EVAL_SPLIT_FRACTION)))
-        eval_patients = set(patients[:n_eval])
+        assignments = partition_subjects(expected.values(), percentages, TRAIN_EVAL_SPLIT_SEED)
         frame = pd.DataFrame([{'case_id': c, 'patient_key': expected[c],
-                               'split': 'eval' if expected[c] in eval_patients else 'training'} for c in cases])
+                               'split': assignments[expected[c]]} for c in cases])
         path.parent.mkdir(parents=True, exist_ok=True)
         with pd.ExcelWriter(path, engine='openpyxl') as writer:
             frame.to_excel(writer, sheet_name='patient_split', index=False)
+            pd.DataFrame([settings]).to_excel(writer, sheet_name='split_settings', index=False)
     if frame.groupby('patient_key')['split'].nunique().max() > 1:
         raise ValueError('Patient leakage: runs/sessions of one subject span partitions.')
-    if set(frame['split']) != {'training','eval'}:
-        raise ValueError('Both training and evaluation must contain an independent subject.')
+    required = {'training', 'eval'} | ({'test'} if TEST_SPLIT_PERCENT > 0 else set())
+    if set(frame['split']) != required:
+        raise ValueError('Each requested partition must contain an independent subject.')
     print(frame.groupby('split').agg(subjects=('patient_key','nunique'), cases=('case_id','nunique')))
     return frame.sort_values(['split','patient_key','case_id']).reset_index(drop=True)
 

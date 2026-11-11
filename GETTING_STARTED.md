@@ -46,7 +46,7 @@ sub-001/anat/sub-001_run-1_echo-2_part-mag_MEGRE.nii.gz
 
 There must be nine acquired magnitude echoes per accepted case, plus a suitable filtered-phase volume or genuine phase source. Session directories/entities and uncompressed `.nii` files are supported. JSON `EchoTime` metadata supplies TE values, converted to milliseconds; protocol fallback is enabled by default and recorded per case. The default fallback is 6.14, 10.14, 14.14, 18.14, 22.14, 26.14, 30.14, 34.14 and 38.14 ms. Disable fallback if missing metadata should be a hard error.
 
-The cohort must support separate training and evaluation subjects. All sessions/runs from a subject stay in the same partition. Preprocessing prepares both magnitude and phase; selecting magnitude-only training does not remove the current requirement for complete prepared data in both modalities.
+The default cohort must contain at least three independent subjects for separate training, evaluation and test partitions. All sessions/runs from a subject stay in the same partition. Preprocessing prepares both magnitude and phase; selecting magnitude-only training does not remove the current requirement for complete prepared data in both modalities.
 
 ## 4. Launch the dashboard
 
@@ -57,10 +57,12 @@ python echo_gen_dashboard.py
 Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
 
 1. Enter the unprocessed data directory and choose phase handling, BET fraction and chunk geometry.
-2. Leave cache paths blank for automatic selection, or specify the existing folders when both layouts are present.
+2. Set **Training (%)**, **Evaluation (%)** and **Test (%)** under **01 · Data & preprocessing** (defaults **70 / 15 / 15**, total 100). Leave cache paths blank for automatic selection, or specify the existing folders when both layouts are present.
 3. Configure the generator filters, TE embedding and regularization.
 4. Select modality/device, epoch limit, learning rates, loss weights and critic update counts.
 5. Run **Preprocess data**, wait for completion, then run **Start training**.
+
+For existing prepared data, enable **Rebuild changed/legacy partitions and derived caches** and run **Preprocess data** when changing percentages/seed or migrating the old two-way split. This checkbox also sets `OVERWRITE_DERIVED=true`; Advanced JSON can override it. The previous split workbook is archived with a unique `.backup-…xlsx` name in the same folder, and derived caches are rebuilt under the existing roots. Matching settings preserve assignments even with the checkbox enabled. Old cache files may remain but only the regenerated manifests define the active cohort. Do not resume a model trained on the old split; the new split changes run identity. Test data is held out from training and checkpoint selection; final test scoring is a separate future workflow.
 
 Advanced JSON values override visible fields. Nested objects are replaced, not merged: supplying a `TRAINING_HYPERPARAMETERS` object requires complete entries for both modalities. **Export configuration** downloads the current form settings; it does not start a job.
 
@@ -79,7 +81,7 @@ Both the controls and the empty preview panel are visible before any job starts.
 
 The four panels show input echo, generator output, acquired target and absolute error. They use the central transversal slice of the current training chunk, not necessarily the middle of the full volume. The generated image is the existing output used in the first critic update, published after that batch completes; no extra inference pass is requested. Input/output/target share a grayscale window; the orange error map uses its own scale. Case, echo times, epoch, batch and capture time identify the current sample. Training samples and augmentation can change between updates.
 
-Each captured panel is limited to 256 pixels per side and upscaled **3× with bicubic interpolation on a background CPU thread** before display. The page fits the resulting image to the available width, so its on-screen size depends on the browser window. Upscaling adds no acquired detail. The plane follows native acquisition orientation, without oblique resampling or anatomical left/right labels.
+Each captured panel is limited to 256 pixels per side and upscaled **2× with exact pixel replication (nearest-neighbor) on a background CPU thread** before display. Each original display pixel becomes four identical pixels in a 2×2 block. The image is displayed at its intrinsic size in a scrollable area, with pixelated browser rendering to avoid smoothing. Upscaling adds no acquired detail. The plane follows native acquisition orientation, without oblique resampling or anatomical left/right labels.
 
 Previews are **memory-only**: the dashboard keeps the latest image per modality and replaces it on update. No preview image files are saved. A new launch clears previews; stopping the server loses them. Configuration files, process logs and trained-model checkpoints are still saved normally. Standalone CLI training without a dashboard receiver skips preview capture.
 
@@ -87,7 +89,7 @@ Twenty seconds is a capture interval, not a guaranteed display deadline: batch c
 
 If these controls are missing after updating the checkout, restart the dashboard from the updated directory and refresh the browser. An already-running worker must finish or be stopped separately before launching with updated settings; restarting the dashboard does not reconnect it.
 
-The dashboard permits one active job per project. Browser closure does not stop the worker. Restarting the dashboard loses its in-memory monitor connection to that worker; saved logs and the project lock remain. There is currently no dashboard stop button or job reattachment interface.
+The dashboard permits one active job per project. Browser closure does not stop the worker. Restarting the dashboard loses its in-memory monitor connection to that worker; saved logs and the project lock remain. Use **Stop training** to request a cooperative interruption of the active training worker. The status changes to **stopping**, then **stopped** when the worker exits. A current GPU operation/data load or checkpoint write may need to finish before a safe Python boundary is reached. The unfinished epoch is discarded; resume uses the last successfully saved checkpoint (which can be earlier than the last completed epoch according to the save interval). If no checkpoint exists yet, training starts over. Keep the same configuration and run instance and enable **Resume matching configuration**. The project lock is released on handled interruption. The button does not stop preprocessing, and job reattachment after a dashboard restart is not implemented.
 
 ## 5. Use the independent CLI
 

@@ -7,7 +7,6 @@ import time
 import zlib
 from urllib.request import Request, urlopen
 import numpy as np
-from PIL import Image
 
 
 def axial_chunk_axis(affine):
@@ -52,19 +51,18 @@ def render_preview(planes, metadata):
     error_max=max(float(np.percentile(error[mask],99)) if mask.any() else 0.,1e-6)
     e=np.clip(error/error_max,0,1)
     heat=np.stack([255*e,100*e,np.zeros_like(e)],axis=-1).astype(np.uint8)
-    # Resample each display panel independently, avoiding interpolation across seams.
+    # Replicate display pixels exactly: one pixel becomes a constant 2x2 block.
     # Training arrays, error values and GPU capture size remain unchanged.
     panels = [gray(inp), gray(generated), gray(target), heat]
-    display_size = (inp.shape[1] * 3, inp.shape[0] * 3)
     rgb = np.concatenate([
-        np.asarray(Image.fromarray(panel).resize(display_size, resample=Image.Resampling.BICUBIC))
+        np.repeat(np.repeat(panel, 2, axis=0), 2, axis=1)
         for panel in panels
     ], axis=1)
     return dict(metadata, image='data:image/png;base64,'+base64.b64encode(png_rgb(rgb)).decode(),
                 display_range=[low,high],error_range=[0.,error_max],has_brain=bool(mask.any()),
                 units='sample-normalized',panel_shape=list(inp.shape),
-                display_panel_shape=[inp.shape[0]*3,inp.shape[1]*3],
-                display_scale=3,display_interpolation='bicubic',captured_at=time.time())
+                display_panel_shape=[inp.shape[0]*2,inp.shape[1]*2],
+                display_scale=2,display_interpolation='nearest',captured_at=time.time())
 
 
 class PreviewWriter:

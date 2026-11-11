@@ -225,9 +225,11 @@ MAG_R2STAR_MAX_PER_MS = _setting('MAG_R2STAR_MAX_PER_MS', MAG_R2STAR_MAX_PER_MS)
 
 # -----------------------------------------------------------------------------
 # Patient split and chunks
+REBUILD_PATIENT_SPLIT = _setting("REBUILD_PATIENT_SPLIT", False)
+TRAINING_SPLIT_PERCENT = _setting("TRAINING_SPLIT_PERCENT", 70.0)
+EVALUATION_SPLIT_PERCENT = _setting("EVALUATION_SPLIT_PERCENT", 15.0)
+TEST_SPLIT_PERCENT = _setting("TEST_SPLIT_PERCENT", 15.0)
 # -----------------------------------------------------------------------------
-TRAIN_EVAL_SPLIT_FRACTION = 0.20
-TRAIN_EVAL_SPLIT_FRACTION = _setting('TRAIN_EVAL_SPLIT_FRACTION', TRAIN_EVAL_SPLIT_FRACTION)
 TRAIN_EVAL_SPLIT_SEED = 42
 TRAIN_EVAL_SPLIT_SEED = _setting('TRAIN_EVAL_SPLIT_SEED', TRAIN_EVAL_SPLIT_SEED)
 TRAIN_EVAL_SPLIT_MANIFEST_XLSX = REFERENCE_ROOT / "filelist_traintestpartitions.xlsx"
@@ -560,6 +562,12 @@ print("Input:", SOURCE_ROOT, "\nPreprocessing:", REFERENCE_ROOT, "\nModels:", TR
 # Validate before launching external preprocessing or allocating GPU memory.
 def validate_settings():
     assert_direct_loop_runtime_config()
+    import math
+    fractions = (TRAINING_SPLIT_PERCENT, EVALUATION_SPLIT_PERCENT, TEST_SPLIT_PERCENT)
+    if fractions[0] <= 0 or fractions[1] <= 0 or fractions[2] < 0 or not math.isclose(sum(fractions), 100., abs_tol=1e-8, rel_tol=0):
+        raise ValueError('Partition percentages must total 100; training/evaluation must be positive and test nonnegative')
+    if 'TRAIN_EVAL_SPLIT_FRACTION' in _OVERRIDES:
+        raise ValueError('TRAIN_EVAL_SPLIT_FRACTION is retired; use TRAINING_SPLIT_PERCENT, EVALUATION_SPLIT_PERCENT and TEST_SPLIT_PERCENT')
     if not PROJECT_ROOT.is_dir(): raise ValueError('Project root does not exist')
     if not TRAINING_MODALITIES_TO_RUN or set(TRAINING_MODALITIES_TO_RUN) - {'magnitude', 'phase'}:
         raise ValueError('Select magnitude and/or phase')
@@ -569,7 +577,7 @@ def validate_settings():
         if type(globals()[key]) is not int or globals()[key] < 1: raise ValueError(f'{key} must be a positive integer')
     if len(CHUNK_GRID)!=3 or any(type(x) is not int or x < 1 for x in CHUNK_GRID): raise ValueError('Invalid chunk grid')
     if CHUNK_OVERLAP_VOXELS < 0: raise ValueError('Chunk overlap must be nonnegative')
-    if not 0 < BET_FRACTION < 1 or not 0 < TRAIN_EVAL_SPLIT_FRACTION < 1: raise ValueError('Invalid BET or split fraction')
+    if not 0 < BET_FRACTION < 1: raise ValueError('Invalid BET or split fraction')
     if not 1 <= MIN_INPUT_ECHOES <= MAX_INPUT_ECHOES <= 8: raise ValueError('Invalid echo count range')
     if MODEL_L2 < 0 or not 0 <= MODEL_LEAKY_RELU <= 1: raise ValueError('Invalid model regularization/slope')
     if set(TRAINING_HYPERPARAMETERS) != {'magnitude','phase'}: raise ValueError('Hyperparameters require magnitude and phase')
@@ -595,7 +603,7 @@ if not isinstance(RUN_INSTANCE, str) or (RUN_INSTANCE and not __import__('re').f
 validate_settings()
 RESOLVED_CONFIGURATION = {k: v for k,v in list(globals().items()) if k.isupper() and not k.startswith('_')}
 # The epoch limit can be extended on resume; all architecture/loss/data settings remain isolated.
-_identity = {k:v for k,v in RESOLVED_CONFIGURATION.items() if k not in {'PIPELINE_ACTION','TRAINING_EPOCHS','TRAINING_RESUME','RUN_INSTANCE','TRAINING_PREVIEW_ENABLED','TRAINING_PREVIEW_INTERVAL_SECONDS'}}
+_identity = {k:v for k,v in RESOLVED_CONFIGURATION.items() if k not in {'PIPELINE_ACTION','TRAINING_EPOCHS','TRAINING_RESUME','RUN_INSTANCE','TRAINING_PREVIEW_ENABLED','TRAINING_PREVIEW_INTERVAL_SECONDS','REBUILD_PATIENT_SPLIT'}}
 _data_fingerprints = {}
 for _p in (REFERENCE_ROOT / 'derived_data_signature.json', TRAIN_EVAL_SPLIT_MANIFEST_XLSX, CEASET_STATS_CSV, CEASET_CHUNK_MANIFEST_CSV, CEASET_FAST_NPY_MANIFEST_CSV):
     if _p.is_file():
