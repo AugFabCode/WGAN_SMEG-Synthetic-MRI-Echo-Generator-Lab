@@ -89,7 +89,7 @@ class PartitionTests(unittest.TestCase):
                         p.load_or_create_ceaset_split()
                 # Incompatible historical counts follow the backup/rebuild path.
                 bad=frame.copy()
-                bad.loc[bad.patient_key==sorted(set(bad.loc[bad.split=='train','patient_key']))[0],'split']='test'
+                bad.loc[bad.patient_key==sorted(set(bad.loc[bad['split']=='train','patient_key']))[0],'split']='test'
                 with pd.ExcelWriter(path,engine='openpyxl') as writer:
                     bad.to_excel(writer,sheet_name='patient_split',index=False)
                 with self.assertRaisesRegex(ValueError,'REBUILD_PATIENT_SPLIT'):
