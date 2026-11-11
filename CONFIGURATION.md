@@ -137,3 +137,13 @@ Within `models/SWI-CEASET-ABRIM-V8/<modality>/`:
 History lives at `training/SWI-CEASET-ABRIM-V8/<modality>/history_<run>.csv`. Dashboard launch configs and logs live directly under the training profile directory. The last completed epoch is saved even if early stopping occurs between periodic save intervals. Forced termination can still lose work since the last successfully saved checkpoint.
 
 A resolved `configuration_<run>.json` contains derived fields and metadata; it is **not** directly accepted as a CLI override file. Use the dashboard-exported config or saved `dashboard_config_*.json` to rerun, and consult the resolved record for provenance. For CLI-created fresh runs, transfer the recorded `RUN_INSTANCE` into the original override file and enable resume.
+
+## Live training MRI preview
+
+`TRAINING_PREVIEW_ENABLED=true` enables a preview after the first training batch, then at most once per `TRAINING_PREVIEW_INTERVAL_SECONDS` (default 60; minimum 10). These display-only settings are excluded from checkpoint identity, so toggling them does not select new model weights. All existing optimization settings stay unchanged.
+
+The preview reuses the masked generator output already scored by the first critic update in a real training batch. No extra generator/critic inference or validation pass is performed. It shows the middle slice of the current **chunk**, not a reconstructed whole-brain mid-slice. Source NIfTI orientation and the preprocessing axis transpose determine the superior–inferior axis. Random training flips remain visible. For oblique acquisitions this is the native acquisition-aligned slice nearest the transversal orientation, not a resampled world-axial image; no anatomical left/right labels are asserted.
+
+Each panel is limited to 256 pixels per side. Only four small planes (input, output, target, mask) are copied to CPU; error calculation and PNG encoding run in one background thread with no queued backlog. A single latest `preview_<run>.json` is atomically replaced inside the existing per-modality training directory. The browser polls a small file-version token and fetches the image only when it changes. Failed encoding/orientation lookup logs a warning without stopping training.
+
+The first three panels share a robust display window derived from input/target; the orange absolute-error panel has a separately displayed scale. Values are sample-normalized. Samples, TE and augmentation can change between previews, so this is an observation of actual training output rather than a fixed longitudinal validation comparison. An empty masked middle slice is shown as such instead of selecting another slice.

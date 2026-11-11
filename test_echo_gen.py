@@ -38,6 +38,11 @@ class ConfigurationTests(unittest.TestCase):
         model_root.mkdir(parents=True)
         (model_root/f"generator_{fresh['RUN_NAME']}_epoch001.weights.h5").touch()
         self.resolve({'TRAINING_RESUME':False,'RUN_INSTANCE':instance},ok=False)
+    def test_preview_settings_do_not_change_checkpoint_identity(self):
+        first=self.resolve()
+        other=self.resolve({'TRAINING_PREVIEW_ENABLED':False,'TRAINING_PREVIEW_INTERVAL_SECONDS':120.0})
+        self.assertEqual(first['RUN_NAME'],other['RUN_NAME'])
+        self.resolve({'TRAINING_PREVIEW_INTERVAL_SECONDS':1.0},ok=False)
     def test_repository_and_notebook_cache_layout(self):
         for folder in ['09_chunks_553','10_training_cache_npy']:(self.root/'preprocess'/folder).mkdir(parents=True)
         r=self.resolve();self.assertTrue(r['CEASET_CHUNK_ROOT'].endswith('09_chunks_553'))
