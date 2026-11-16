@@ -1,6 +1,6 @@
 # Configuration reference
 
-[README](README.md) · [Getting started](GETTING_STARTED.md) · [Pipeline](PIPELINE.md) · [U-Net batching comparison](UNET_BATCHING_METHODS.md)
+[README](README.md) · [Getting started](GETTING_STARTED.md) · [Pipeline](PIPELINE.md) · [U-Net batching comparison](UNET_BATCHING_METHODS.md) · [Rendered patch-selection pipeline](PATCH_SELECTION_PIPELINE.md)
 
 ## Configuration files and precedence
 
@@ -34,6 +34,8 @@ Some keys remain for notebook compatibility rather than providing independent ac
 | `UNET_BRAIN_CROP_ENABLED` | `false` | Crop source volume to its existing BET/eroded mask's nonzero bounding box before chunk creation |
 | `UNET_BRAIN_CROP_MARGIN_VOXELS` | `4` | Additional voxels per brain ROI side, clamped to scanner FOV |
 | `UNET_PAD_MULTIPLE` | `8` | Zero-pad spatial dimensions to multiples of 8/16/32; no interpolation |
+| `DROP_LOW_INFORMATION_CHUNKS` | `false` | When enabled, skip almost-empty grid patches only in the training iterator; preserve files and held-out geometry |
+| `MIN_BRAIN_FRACTION_PER_CHUNK` | `0.03` | Required ratio of brain-mask foreground voxels to all padded patch voxels for training selection (0–1) |
 | `SMALL_DATASET_MODE` | `false` | Opt-in original two-way experiment (80% training / 20% validation / 0% independent test) |
 | `TRAINING_SPLIT_PERCENT` | `70.0` | Percentage of subjects assigned to training (defaults to 80 in small-dataset mode if omitted) |
 | `EVALUATION_SPLIT_PERCENT` | `15.0` | Percentage assigned to evaluation/checkpoint selection (defaults to 20 in small-dataset mode if omitted) |
