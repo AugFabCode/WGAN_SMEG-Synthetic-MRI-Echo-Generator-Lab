@@ -19,26 +19,26 @@ Both are optional. The existing deterministic patch geometry, echo conditioning,
 
 ```mermaid
 flowchart TD
-    A["ABRIM subject: 9 acquired GRE echoes\nMagnitude + phase + brain mask"]
-    S["Existing patient-level split\nTraining / evaluation / held-out test"]
+    A["ABRIM subject: 9 acquired GRE echoes<br/>Magnitude + phase + brain mask"]
+    S["Existing patient-level split<br/>Training / evaluation / held-out test"]
     B{"Brain ROI crop enabled?"}
-    C["Mask bounding box + safety margin\nApply identical source coordinates to every echo"]
-    D["Original acquired field of view\nNo crop"]
+    C["Mask bounding box + safety margin<br/>Apply identical source coordinates to every echo"]
+    D["Original acquired field of view<br/>No crop"]
     E{"Spatial sampling mode"}
-    F["Existing overlapping 3-D grid patches\nNo change to chunk extraction"]
+    F["Existing overlapping 3-D grid patches<br/>No change to chunk extraction"]
     G["One full 3-D volume per subject"]
-    H["Measure each patch using brain mask\nforeground voxels / all padded patch voxels"]
-    I["Preserve nonempty patches and metadata\nHDF5 + NumPy cache + unified manifest"]
+    H["Measure each patch using brain mask<br/>foreground voxels / all padded patch voxels"]
+    I["Preserve nonempty patches and metadata<br/>HDF5 + NumPy cache + unified manifest"]
     J{"Which patient partition?"}
     K{"Training grid + filter enabled?"}
     L["Use all nonempty patches"]
     M{"Brain fraction meets threshold?"}
     N["Mark patch eligible for training"]
-    O["Mark patch skipped during training\nKeep original data for evaluation and reconstruction"]
-    P["Safeguard: retain highest-occupancy patch\nif an entire training subject would be removed"]
-    Q["Existing direct WGAN-GP training\nDynamic 1–4 input echoes; batch size = 1"]
-    R["Complete evaluation / held-out testing\nAll nonempty patches, no occupancy filter"]
-    T["Spatially complete patch set\nAvailable for SWI/QSM assembly"]
+    O["Mark patch skipped during training<br/>Keep original data for evaluation and reconstruction"]
+    P["Safeguard: retain highest-occupancy patch<br/>if an entire training subject would be removed"]
+    Q["Existing direct WGAN-GP training<br/>Dynamic 1–4 input echoes; batch size = 1"]
+    R["Complete evaluation / held-out testing<br/>All nonempty patches, no occupancy filter"]
+    T["Spatially complete patch set<br/>Available for SWI/QSM assembly"]
     A --> S --> B
     B -- Yes --> C --> E
     B -- No --> D --> E
@@ -65,20 +65,22 @@ In some earlier experiments the acquired volume was divided into **four large cu
 ```mermaid
 flowchart LR
     subgraph BEFORE["Fixed four-cube example, before ROI crop"]
-      A1["Cube 1\n85% brain"]
-      A2["Cube 2\n22% brain"]
-      A3["Cube 3\n0.2% brain"]
-      A4["Cube 4\n0% brain"]
+      A1["Cube 1<br/>85% brain"]
+      A2["Cube 2<br/>22% brain"]
+      A3["Cube 3<br/>0.2% brain"]
+      A4["Cube 4<br/>0% brain"]
     end
     subgraph AFTER["After mask ROI crop and occupancy evaluation"]
-      B1["Informative patches\nTrain"]
-      B2["Low-occupancy patches\nSkip training; retain data"]
-      B3["Complete evaluated geometry\nNo train-only filtering"]
+      B1["Informative patches<br/>Train"]
+      B2["Low-occupancy patches<br/>Skip training; retain data"]
+      B3["Complete evaluated geometry<br/>No train-only filtering"]
     end
     A1 --> B1
     A2 --> B1
     A3 --> B2
-    A4 --> B3
+    A4 --> B4["Already omitted at chunk creation<br/>0% brain foreground"]
+    B1 --> B3
+    B2 --> B3
 ```
 
 The values in the above schematic are **illustrative**, not cohort measurements. For a 3% threshold, a patch with 0.2% occupancy is excluded from the training iterator. A 0%-occupancy patch is already omitted from the original cache by the existing empty-mask rule.
