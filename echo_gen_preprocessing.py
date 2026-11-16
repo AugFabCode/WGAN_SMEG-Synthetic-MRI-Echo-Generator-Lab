@@ -66,6 +66,10 @@ class PipelineConfig:
     affine_tolerance: float = 1e-4
     chunk_grid: tuple = CHUNK_GRID
     chunk_overlap_voxels: int = CHUNK_OVERLAP_VOXELS
+    unet_batching_mode: str = UNET_BATCHING_MODE
+    unet_brain_crop_enabled: bool = UNET_BRAIN_CROP_ENABLED
+    unet_brain_crop_margin_voxels: int = UNET_BRAIN_CROP_MARGIN_VOXELS
+    unet_pad_multiple: int = UNET_PAD_MULTIPLE
     write_chunk_nifti: bool = WRITE_CHUNK_NIFTI
     write_chunk_hdf5: bool = WRITE_CHUNK_HDF5
     clearswi_path_prefix: Path = CLEARSWI_PATH_PREFIX
