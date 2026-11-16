@@ -1,5 +1,6 @@
 """Synthetic geometry regression tests; no MRI dataset or TensorFlow required."""
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 import numpy as np
@@ -218,6 +219,27 @@ class UnetBatchingTests(unittest.TestCase):
                                 'training_sample_enabled':['invalid']})
         with self.assertRaisesRegex(ValueError, 'Invalid training_sample_enabled'):
             p.select_ceaset_split_rows(invalid, 'training')
+
+
+
+    def test_inactive_filter_does_not_invalidate_existing_derived_cache(self):
+        cases = pd.DataFrame({'case_id': ['synthetic-case'], 'split': ['training']})
+        with patch.object(p, '_available_complete_case_ids', return_value=[]), \
+                patch.object(p, 'load_or_create_ceaset_split', return_value=cases):
+            configs = [
+                geometry(drop=False, threshold=0.01),
+                geometry(drop=False, threshold=0.20),
+                geometry(drop=True, threshold=0.03),
+                geometry(drop=True, threshold=0.10),
+                geometry(mode='full_volume', drop=True, threshold=0.10),
+            ]
+            for cfg in configs:
+                cfg.echo_labels = p.CFG.echo_labels
+            sigs = [p._derived_signature(cfg) for cfg in configs]
+        self.assertEqual(sigs[0], sigs[1])
+        self.assertNotEqual(sigs[0], sigs[2])
+        self.assertNotEqual(sigs[2], sigs[3])
+        self.assertEqual(sigs[0], sigs[4])
 
 
 if __name__ == "__main__":
