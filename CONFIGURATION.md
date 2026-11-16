@@ -1,6 +1,6 @@
 # Configuration reference
 
-[README](README.md) · [Getting started](GETTING_STARTED.md) · [Pipeline](PIPELINE.md)
+[README](README.md) · [Getting started](GETTING_STARTED.md) · [Pipeline](PIPELINE.md) · [U-Net batching comparison](UNET_BATCHING_METHODS.md)
 
 ## Configuration files and precedence
 
@@ -29,7 +29,11 @@ Some keys remain for notebook compatibility rather than providing independent ac
 | `BET_FRACTION` | `0.20` | BET fractional threshold |
 | `BET_EROSION_RADIUS_MM` | `2.0` | Erosion radius in millimetres |
 | `CHUNK_GRID` | `[5,5,3]` | Chunk counts along spatial axes |
-| `CHUNK_OVERLAP_VOXELS` | `20` | Chunk overlap/padding setting |
+| `CHUNK_OVERLAP_VOXELS` | `20` | Chunk overlap/padding setting in grid mode |
+| `UNET_BATCHING_MODE` | `"grid_patches"` | Use the existing grid or `"full_volume"` (one 3-D sample per subject) |
+| `UNET_BRAIN_CROP_ENABLED` | `false` | Crop source volume to its existing BET/eroded mask's nonzero bounding box before chunk creation |
+| `UNET_BRAIN_CROP_MARGIN_VOXELS` | `4` | Additional voxels per brain ROI side, clamped to scanner FOV |
+| `UNET_PAD_MULTIPLE` | `8` | Zero-pad spatial dimensions to multiples of 8/16/32; no interpolation |
 | `SMALL_DATASET_MODE` | `false` | Opt-in original two-way experiment (80% training / 20% validation / 0% independent test) |
 | `TRAINING_SPLIT_PERCENT` | `70.0` | Percentage of subjects assigned to training (defaults to 80 in small-dataset mode if omitted) |
 | `EVALUATION_SPLIT_PERCENT` | `15.0` | Percentage assigned to evaluation/checkpoint selection (defaults to 20 in small-dataset mode if omitted) |
@@ -40,6 +44,8 @@ Some keys remain for notebook compatibility rather than providing independent ac
 | `OVERWRITE_DERIVED` | `false` | Explicitly rebuild stale statistics/chunks/cache |
 
 Per-case override keys omit the initial `sub-`, for example `001_run-1` or `001_ses-01_run-1`. Use absolute paths in override maps; they are not normalized through the source/cache path resolver. The split workbook stores percentages and seed in a `split_settings` sheet alongside `patient_split`. Matching settings reuse its subject assignments. Changing percentages/seed or migrating a legacy workbook requires an explicit preprocessing rebuild. Percentages must sum to 100; training and evaluation must be positive, while test may be zero. Every nonzero partition needs at least one subject; integer counts approximate the requested percentages deterministically. All sessions/runs from a subject stay together. The retired `TRAIN_EVAL_SPLIT_FRACTION` key must be removed from old configuration JSON. With `SMALL_DATASET_MODE=true`, omit the three percentage keys to use original 80/20/0 defaults; the second partition is **validation** (including best-checkpoint selection and early stopping), not an unbiased final test set. Only two independent subjects are required. Legacy workbooks containing only `patient_split` with matching original 80/20 allocations are reused read-only, including `train/test` aliases (legacy `test` becomes internal `eval`). They are not silently repartitioned; changing the allocation requires explicit rebuild. Existing derived caches may still require `OVERWRITE_DERIVED=true` to refresh signatures. Do not resume checkpoints across split-mode changes. New percentages and workbook fingerprints isolate model run identities from old splits.
+
+U-Net spatial sampling is explained for scientific review in [3-D U-Net batching methods](UNET_BATCHING_METHODS.md). The `UNET_BRAIN_CROP_ENABLED` switch is independent of patch/full-volume mode. A full volume is **not** a multi-subject minibatch; `TRAINING_BATCH_SIZE` remains fixed at 1. Both modes reuse the same preprocessing and direct training architecture. Optional chunk NIfTI exports record the correct source scanner-space affine after axis transpose and padding, while NPY/HDF5 reconstruction uses the source-coordinate manifest.
 
 Preprocessing cache reuse is signature-checked. A changed source, cohort, chunk geometry or normalization setup may require a rebuild. Only enable overwrite flags when that rebuild is intended. The high-level preparation function rebuilds derived outputs together when needed; lower-level compatibility flags such as `OVERWRITE_CHUNKS` are not a substitute for `OVERWRITE_DERIVED`.
 
