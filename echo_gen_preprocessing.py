@@ -70,6 +70,8 @@ class PipelineConfig:
     unet_brain_crop_enabled: bool = UNET_BRAIN_CROP_ENABLED
     unet_brain_crop_margin_voxels: int = UNET_BRAIN_CROP_MARGIN_VOXELS
     unet_pad_multiple: int = UNET_PAD_MULTIPLE
+    drop_low_information_chunks: bool = DROP_LOW_INFORMATION_CHUNKS
+    min_brain_fraction_per_chunk: float = MIN_BRAIN_FRACTION_PER_CHUNK
     write_chunk_nifti: bool = WRITE_CHUNK_NIFTI
     write_chunk_hdf5: bool = WRITE_CHUNK_HDF5
     clearswi_path_prefix: Path = CLEARSWI_PATH_PREFIX
@@ -999,6 +1001,69 @@ def build_training_spatial_specs(mask, cfg=CFG):
     return result
 
 
+def annotate_training_patch_specs(mask, specs, cfg=CFG, *, split_name='training'):
+    """Attach mask occupancy and train-only selection without deleting geometry.
+
+    The numerator counts real brain-mask voxels (mask > 0.5). The denominator
+    counts ALL voxels in the network input chunk, INCLUDING zero padding, so
+    the fraction describes how much of the patch actually carries brain signal.
+    This operates on the 3-D mask alone, identically for all echo modalities.
+    All nonempty chunks are still persisted for reconstruction/held-out QA.
+    """
+    retained = []
+    for spec in specs:
+        foreground = int(np.count_nonzero(extract_chunk(mask, spec) > 0.5))
+        if foreground == 0:
+            continue  # Preserve the previous behavior for completely empty chunks.
+        fraction = foreground / float(np.prod(spec['chunk_shape']))
+        retained.append((spec, fraction))
+    if not retained:
+        raise RuntimeError('No brain-containing chunks exist for this subject')
+
+    filter_training = (
+        split_name == 'training'
+        and cfg.unet_batching_mode == 'grid_patches'
+        and cfg.drop_low_information_chunks
+    )
+    selected = {
+        tuple(spec['index']) for spec, fraction in retained
+        if fraction >= cfg.min_brain_fraction_per_chunk
+    } if filter_training else {tuple(spec['index']) for spec, _ in retained}
+    if not selected:
+        # Never silently erase a subject from its patient-level partition.
+        fallback, _ = max(retained, key=lambda pair: pair[1])
+        selected = {tuple(fallback['index'])}
+
+    result = []
+    for spec, fraction in retained:
+        annotated = dict(spec)
+        annotated['brain_fraction'] = float(fraction)
+        annotated['training_sample_enabled'] = tuple(spec['index']) in selected
+        result.append(annotated)
+    return result
+
+
+def select_ceaset_split_rows(manifest, split):
+    """Use the shared manifest for train/eval/test, filtering only train sampling.
+
+    The original grid/ROI, echo paths, masks, and reconstruction coverage are
+    preserved; held-out evaluation/test always use the complete source manifest.
+    """
+    rows = manifest.loc[manifest['split'].astype(str) == str(split)]
+    if str(split) == 'training':
+        if 'training_sample_enabled' in rows.columns:
+            truth = rows['training_sample_enabled'].astype(str).str.strip().str.lower()
+            if not truth.isin(('true', 'false', '1', '0')).all():
+                raise ValueError('Invalid training_sample_enabled values in manifest')
+            rows = rows.loc[truth.isin(('true', '1'))]
+        elif DROP_LOW_INFORMATION_CHUNKS:
+            raise RuntimeError(
+                'Missing training_sample_enabled in stale manifest. '
+                'Rebuild derived training chunks with OVERWRITE_DERIVED=True.'
+            )
+    return rows.reset_index(drop=True)
+
+
 def chunk_nifti_affine(source_affine, spec):
     """Map processed/padded chunk voxel indices to the source scanner world."""
     offset = np.asarray(spec['source_start']) - np.asarray(spec['pad_before'])
@@ -1070,6 +1135,8 @@ def _derived_signature(cfg=CFG):
         'unet_brain_crop_enabled': cfg.unet_brain_crop_enabled,
         'unet_brain_crop_margin_voxels': cfg.unet_brain_crop_margin_voxels,
         'unet_pad_multiple': cfg.unet_pad_multiple,
+        'drop_low_information_chunks': cfg.drop_low_information_chunks,
+        'min_brain_fraction_per_chunk': cfg.min_brain_fraction_per_chunk,
         'normalization': [MAGNITUDE_SCALE_PERCENTILE, MAGNITUDE_SATURATED_SCALE_PERCENTILE,
             MAGNITUDE_NEAR_CEILING_FRACTION, MAGNITUDE_CEILING_CANDIDATES,
             MAGNITUDE_CEILING_TOLERANCE, PHASE_RATE_PERCENTILE, PHASE_SCALE_REFERENCE_TE_MS],
@@ -1191,7 +1258,9 @@ def create_ceaset_chunks(
         if mask.shape != reference_shape:
             raise ValueError(f"Mask shape mismatch for {case_id}: {mask.shape} vs {reference_shape}")
 
-        specs = build_training_spatial_specs(mask, cfg)
+        specs = annotate_training_patch_specs(
+            mask, build_training_spatial_specs(mask, cfg), cfg, split_name=split_name
+        )
         for spec in specs:
             i,j,k = spec["index"]
             chunk_id = f"{case_id}_{i}{j}{k}"
@@ -1204,6 +1273,8 @@ def create_ceaset_chunks(
                 "roi_shape": "x".join(str(b-a) for a,b in zip(spec["roi_start"],spec["roi_end"])),
                 "unet_batching_mode": cfg.unet_batching_mode,
                 "unet_brain_crop_enabled": bool(cfg.unet_brain_crop_enabled),
+                "brain_fraction": float(spec["brain_fraction"]),
+                "training_sample_enabled": bool(spec["training_sample_enabled"]),
                 "chunk_shape": "x".join(map(str, spec["chunk_shape"])),
                 "echo_times_ms": json.dumps([float(v) for v in echo_times]),
                 "echo_time_source": echo_time_source_for_case(case_id, cfg),
@@ -1242,7 +1313,10 @@ def create_ceaset_chunks(
                 for axis, value in zip(("H","W","D"), values):
                     row[f"{label}_{axis}"] = int(value)
             rows.append(row)
-        print(f"[CHUNKS] {case_id} -> {split_name} | {len(specs)} chunks | shape={reference_shape}")
+        selected = sum(bool(spec["training_sample_enabled"]) for spec in specs)
+        print(f"[CHUNKS] {case_id} -> {split_name} | {len(specs)} nonempty chunks, "
+              f"{selected} eligible for training | shape={reference_shape} "
+              f"| min_brain_fraction={cfg.min_brain_fraction_per_chunk:.1%}")
         del volumes, mask
         gc.collect()
 
