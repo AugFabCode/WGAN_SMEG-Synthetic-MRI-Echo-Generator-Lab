@@ -588,6 +588,8 @@ def validate_settings():
         if type(globals()[key]) is not int or globals()[key] < 1: raise ValueError(f'{key} must be a positive integer')
     if len(CHUNK_GRID)!=3 or any(type(x) is not int or x < 1 for x in CHUNK_GRID): raise ValueError('Invalid chunk grid')
     if CHUNK_OVERLAP_VOXELS < 0: raise ValueError('Chunk overlap must be nonnegative')
+    if type(TRAINING_SAMPLES_PER_CHUNK_PER_EPOCH) is not int or TRAINING_SAMPLES_PER_CHUNK_PER_EPOCH < 1:
+        raise ValueError('TRAINING_SAMPLES_PER_CHUNK_PER_EPOCH must be a positive integer')
     if UNET_BATCHING_MODE not in ('grid_patches', 'full_volume'):
         raise ValueError('UNET_BATCHING_MODE must be grid_patches or full_volume')
     if type(UNET_BRAIN_CROP_MARGIN_VOXELS) is not int or UNET_BRAIN_CROP_MARGIN_VOXELS < 0:
