@@ -943,16 +943,80 @@ def load_or_create_ceaset_split(cfg=CFG):
     return frame.sort_values(['split','patient_key','case_id']).reset_index(drop=True)
 
 
-def build_chunk_specs(shape, n_chunks, overlap):
-    """Cover every voxel, including remainders; pad to the generator's 8-voxel stride."""
+def brain_mask_bounding_box(mask, margin=0):
+    """Half-open 3-D ROI in processing (H,W,D) voxel coordinates; no resampling.
+
+    Equivalent to fslstats -w after orient_for_processing, with a clamped
+    foreground margin. The mask must have real brain voxels.
+    """
+    if mask.ndim != 3 or type(margin) is not int or margin < 0:
+        raise ValueError("Expected a 3-D brain mask and nonnegative integer margin")
+    positive = np.asarray(mask) > 0.5
+    if not np.any(positive):
+        raise ValueError("Brain mask is empty; cannot compute ROI")
+    starts, ends = [], []
+    for axis in range(3):
+        axes = tuple(i for i in range(3) if i != axis)
+        indices = np.flatnonzero(np.any(positive, axis=axes))
+        starts.append(max(0, int(indices[0]) - margin))
+        ends.append(min(mask.shape[axis], int(indices[-1]) + 1 + margin))
+    return tuple(starts), tuple(ends)
+
+
+def build_training_spatial_specs(mask, cfg=CFG):
+    """Return one common source-coordinate geometry for every echo and mask.
+
+    In full_volume mode there is one 8/16/32-aligned padded ROI per subject.
+    In grid_patches mode the existing chunk splitter works on the ROI but
+    offsets the source coordinates back into the uncropped original volume.
+    """
+    if mask.ndim != 3:
+        raise ValueError("Training brain mask must be 3-D")
+    shape = tuple(int(d) for d in mask.shape)
+    roi_start, roi_end = (
+        brain_mask_bounding_box(mask, int(cfg.unet_brain_crop_margin_voxels))
+        if cfg.unet_brain_crop_enabled else ((0, 0, 0), shape)
+    )
+    roi_shape = tuple(b-a for a, b in zip(roi_start, roi_end))
+    mode = cfg.unet_batching_mode
+    if mode not in ('grid_patches', 'full_volume'):
+        raise ValueError(f'Unsupported UNET_BATCHING_MODE: {mode}')
+    grid = cfg.chunk_grid if mode == 'grid_patches' else (1, 1, 1)
+    overlap = cfg.chunk_overlap_voxels if mode == 'grid_patches' else 0
+    specs = build_chunk_specs(roi_shape, grid, overlap, cfg.unet_pad_multiple)
+    result = []
+    for local in specs:
+        spec = dict(local)
+        for field in ('core_start', 'core_end', 'source_start', 'source_end'):
+            spec[field] = tuple(v+shift for v,shift in zip(local[field], roi_start))
+        spec['roi_start'] = roi_start
+        spec['roi_end'] = roi_end
+        result.append(spec)
+    return result
+
+
+def chunk_nifti_affine(source_affine, spec):
+    """Map processed/padded chunk voxel indices to the source scanner world."""
+    offset = np.asarray(spec['source_start']) - np.asarray(spec['pad_before'])
+    xform = np.eye(4, dtype=np.float64)
+    # orient_for_processing swaps the first and second source axes.
+    xform[:3, :3] = ((0, 1, 0), (1, 0, 0), (0, 0, 1))
+    xform[:3, 3] = (offset[1], offset[0], offset[2])
+    return np.asarray(source_affine) @ xform
+
+
+def build_chunk_specs(shape, n_chunks, overlap, pad_multiple=8):
+    """Cover every voxel, including remainders; pad to a U-Net stride multiple."""
     shape, n_chunks = tuple(map(int, shape)), tuple(map(int, n_chunks))
     if len(shape) != 3 or len(n_chunks) != 3 or min(shape) < 1 or min(n_chunks) < 1:
         raise ValueError('Expected positive 3-D shape and grid')
+    if type(pad_multiple) is not int or pad_multiple not in (8, 16, 32):
+        raise ValueError('pad_multiple must be 8, 16, or 32')
     if overlap < 0 or any(n > s for n, s in zip(n_chunks, shape)):
         raise ValueError('Invalid overlap or more chunks than voxels')
     edges = [np.linspace(0, s, n+1, dtype=int) for s, n in zip(shape, n_chunks)]
     max_core = [int(np.diff(e).max()) for e in edges]
-    desired = tuple(int(math.ceil((s+2*overlap)/8)*8) for s in max_core)
+    desired = tuple(int(math.ceil((s+2*overlap)/pad_multiple)*pad_multiple) for s in max_core)
     specs = []
     for index in np.ndindex(n_chunks):
         cs = tuple(int(edges[d][index[d]]) for d in range(3))
@@ -998,6 +1062,10 @@ def _derived_signature(cfg=CFG):
     split = load_or_create_ceaset_split(cfg)
     return _digest({'cases': metadata, 'split': split.to_dict('records'),
         'echo_labels': cfg.echo_labels, 'grid': cfg.chunk_grid, 'overlap': cfg.chunk_overlap_voxels,
+        'unet_batching_mode': cfg.unet_batching_mode,
+        'unet_brain_crop_enabled': cfg.unet_brain_crop_enabled,
+        'unet_brain_crop_margin_voxels': cfg.unet_brain_crop_margin_voxels,
+        'unet_pad_multiple': cfg.unet_pad_multiple,
         'normalization': [MAGNITUDE_SCALE_PERCENTILE, MAGNITUDE_SATURATED_SCALE_PERCENTILE,
             MAGNITUDE_NEAR_CEILING_FRACTION, MAGNITUDE_CEILING_CANDIDATES,
             MAGNITUDE_CEILING_TOLERANCE, PHASE_RATE_PERCENTILE, PHASE_SCALE_REFERENCE_TE_MS],
@@ -1076,11 +1144,11 @@ def _save_h5_chunk(path: Path, data: np.ndarray, *, overwrite: bool = False) -> 
         handle.create_dataset("data", data=np.asarray(data, dtype=np.float32), compression=CEASET_HDF5_COMPRESSION)
 
 
-def _save_nii_chunk(path: Path, data: np.ndarray, *, overwrite: bool = False) -> None:
+def _save_nii_chunk(path: Path, data: np.ndarray, *, affine: np.ndarray, overwrite: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not overwrite:
         return
-    nib.save(nib.Nifti1Image(np.asarray(data, dtype=np.float32), affine=np.eye(4)), str(path))
+    nib.save(nib.Nifti1Image(np.asarray(data, dtype=np.float32), affine=affine), str(path))
 
 
 def create_ceaset_chunks(
@@ -1095,25 +1163,31 @@ def create_ceaset_chunks(
     for case_id in sorted(split_by_case):
         split_name = split_by_case[case_id]
         echo_times = echo_times_for_case(case_id, cfg)
-        _, mask_raw = load_float_nifti(_eroded_mask_path(case_id, cfg))
+        mask_image, mask_raw = load_float_nifti(_eroded_mask_path(case_id, cfg))
         mask = orient_for_processing(mask_raw).astype(np.float32)
 
         # Load all echoes once per case, then cut the same spatial specs.
         volumes: dict[tuple[str,str], np.ndarray] = {}
+        affines: dict[tuple[str,str], np.ndarray] = {}
         reference_shape = None
         for modality in ("magnitude", "phase"):
             for echo in cfg.echo_labels:
-                _, raw = load_float_nifti(_prepared_case_path(case_id, modality, echo, cfg))
+                image, raw = load_float_nifti(_prepared_case_path(case_id, modality, echo, cfg))
                 vol = orient_for_processing(raw).astype(np.float32, copy=False)
                 if reference_shape is None:
                     reference_shape = vol.shape
                 if vol.shape != reference_shape:
                     raise ValueError(f"Shape mismatch for {case_id}: {modality} {echo} {vol.shape} vs {reference_shape}")
+                if cfg.unet_brain_crop_enabled and not np.allclose(
+                    image.affine, mask_image.affine, atol=cfg.affine_tolerance, rtol=0
+                ):
+                    raise ValueError(f"Scanner-space affine mismatch for {case_id}: {modality} {echo}")
                 volumes[(modality,echo)] = vol
+                affines[(modality,echo)] = image.affine
         if mask.shape != reference_shape:
             raise ValueError(f"Mask shape mismatch for {case_id}: {mask.shape} vs {reference_shape}")
 
-        specs = build_chunk_specs(reference_shape, cfg.chunk_grid, cfg.chunk_overlap_voxels)
+        specs = build_training_spatial_specs(mask, cfg)
         for spec in specs:
             i,j,k = spec["index"]
             chunk_id = f"{case_id}_{i}{j}{k}"
@@ -1123,6 +1197,9 @@ def create_ceaset_chunks(
                 "chunk_id": chunk_id,
                 "chunk_i": i, "chunk_j": j, "chunk_k": k,
                 "source_shape": "x".join(map(str, reference_shape)),
+                "roi_shape": "x".join(str(b-a) for a,b in zip(spec["roi_start"],spec["roi_end"])),
+                "unet_batching_mode": cfg.unet_batching_mode,
+                "unet_brain_crop_enabled": bool(cfg.unet_brain_crop_enabled),
                 "chunk_shape": "x".join(map(str, spec["chunk_shape"])),
                 "echo_times_ms": json.dumps([float(v) for v in echo_times]),
                 "echo_time_source": echo_time_source_for_case(case_id, cfg),
@@ -1146,13 +1223,17 @@ def create_ceaset_chunks(
                     else:
                         raise RuntimeError("At least one chunk output format must be enabled")
                     if cfg.write_chunk_nifti:
-                        _save_nii_chunk(base.with_suffix(".nii"), chunk, overwrite=overwrite)
+                        _save_nii_chunk(
+                            base.with_suffix(".nii"), chunk,
+                            affine=chunk_nifti_affine(affines[(modality,echo)], spec),
+                            overwrite=overwrite)
                     row[f"{modality}_{echo}_path"] = str(path)
 
             for label, values in (
                 ("core_start", spec["core_start"]), ("core_end", spec["core_end"]),
                 ("source_start", spec["source_start"]), ("source_end", spec["source_end"]),
                 ("pad_before", spec["pad_before"]), ("pad_after", spec["pad_after"]),
+                ("roi_start", spec["roi_start"]), ("roi_end", spec["roi_end"]),
             ):
                 for axis, value in zip(("H","W","D"), values):
                     row[f"{label}_{axis}"] = int(value)
@@ -1198,12 +1279,14 @@ def estimate_fast_npy_cache_gib(
     """
     if base_manifest.empty:
         return 0.0
-    first = base_manifest.iloc[0]
-    chunk_xyz = tuple(int(v) for v in str(first["chunk_shape"]).split("x"))
-    voxels = int(np.prod(chunk_xyz))
+    # Full-volume ROI crops can have different shapes for each subject.
+    voxels = sum(
+        int(np.prod(tuple(int(v) for v in str(s).split("x"))))
+        for s in base_manifest["chunk_shape"]
+    )
     # one mask + all echoes for each requested modality
     arrays_per_chunk = 1 + len(tuple(modalities)) * len(cfg.echo_labels)
-    total_bytes = len(base_manifest) * voxels * arrays_per_chunk * 4
+    total_bytes = voxels * arrays_per_chunk * 4
     return float(total_bytes) / (1024 ** 3)
 
 
@@ -1265,11 +1348,7 @@ def build_ceaset_fast_npy_cache(
         _, mask_raw = load_float_nifti(_eroded_mask_path(case_id, cfg))
         mask = orient_for_processing(mask_raw).astype(np.float32, copy=False)
         reference_shape = tuple(int(v) for v in mask.shape)
-        specs = build_chunk_specs(
-            reference_shape,
-            cfg.chunk_grid,
-            cfg.chunk_overlap_voxels,
-        )
+        specs = build_training_spatial_specs(mask, cfg)
         spec_by_index = {
             tuple(int(v) for v in spec["index"]): spec
             for spec in specs
