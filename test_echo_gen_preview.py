@@ -202,6 +202,6 @@ class PreviewTests(unittest.TestCase):
             im=Image.open(io.BytesIO(base64.b64decode(result['image'].split(',')[1])))
             self.assertEqual(im.size,((k+3)*18,15))
             with self.assertRaisesRegex(ValueError,'input_tes_ms'):
-                render_preview(planes,dict(metadata,input_tes_ms=[6.0]))
+                render_preview(planes,dict(metadata,input_tes_ms=metadata['input_tes_ms'][:-1]))
 
 if __name__=='__main__':unittest.main()
