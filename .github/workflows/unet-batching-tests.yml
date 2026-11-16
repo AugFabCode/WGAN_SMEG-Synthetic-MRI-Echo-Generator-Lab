@@ -1,0 +1,35 @@
+name: MRI preprocessing and 3D U-Net geometry tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'feature/unet-*'
+
+jobs:
+  preprocessing-and-geometry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-echo-gen-preprocess.txt
+      - name: Install preprocessing dependencies
+        run: python -m pip install -r requirements-echo-gen-preprocess.txt
+      - name: Verify syntax of edited modules
+        run: python -m py_compile echo_gen_config.py echo_gen_preprocessing.py echo_gen_dashboard.py
+      - name: Run synthetic and configuration regression suite
+        run: |
+          python -m unittest -v \
+            test_echo_gen.py \
+            test_echo_gen_data.py \
+            test_echo_gen_preview.py \
+            test_echo_gen_partition.py \
+            test_echo_gen_events.py \
+            test_echo_gen_unet_batching.py
