@@ -178,8 +178,10 @@ class UnetBatchingTests(unittest.TestCase):
             'training_sample_enabled': [True, False, False, False],
             'chunk_id': ['full', 'edge', 'validation', 'held_out'],
         })
-        self.assertEqual(p.select_ceaset_split_rows(
-            manifest, 'training')['chunk_id'].tolist(), ['full'])
+        with patch.object(p, 'DROP_LOW_INFORMATION_CHUNKS', True), \
+                patch.object(p, 'UNET_BATCHING_MODE', 'grid_patches'):
+            self.assertEqual(p.select_ceaset_split_rows(
+                manifest, 'training')['chunk_id'].tolist(), ['full'])
         self.assertEqual(p.select_ceaset_split_rows(
             manifest, 'eval')['chunk_id'].tolist(), ['validation'])
         self.assertEqual(p.select_ceaset_split_rows(
@@ -217,10 +219,31 @@ class UnetBatchingTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         invalid = pd.DataFrame({'split':['training'],
                                 'training_sample_enabled':['invalid']})
-        with self.assertRaisesRegex(ValueError, 'Invalid training_sample_enabled'):
-            p.select_ceaset_split_rows(invalid, 'training')
+        with patch.object(p, 'DROP_LOW_INFORMATION_CHUNKS', True), \
+                patch.object(p, 'UNET_BATCHING_MODE', 'grid_patches'):
+            with self.assertRaisesRegex(ValueError, 'Invalid training_sample_enabled'):
+                p.select_ceaset_split_rows(invalid, 'training')
 
 
+
+    def test_sampler_respects_enable_switch_and_full_volume_bypass(self):
+        manifest = pd.DataFrame({
+            'split': ['training', 'training'],
+            'chunk_id': ['high', 'low'],
+            'training_sample_enabled': [True, False],
+        })
+        with patch.object(p, 'DROP_LOW_INFORMATION_CHUNKS', False):
+            self.assertEqual(len(p.select_ceaset_split_rows(manifest, 'training')), 2)
+        with patch.object(p, 'DROP_LOW_INFORMATION_CHUNKS', True), \
+                patch.object(p, 'UNET_BATCHING_MODE', 'full_volume'):
+            self.assertEqual(len(p.select_ceaset_split_rows(manifest, 'training')), 2)
+            self.assertEqual(len(p.select_ceaset_split_rows(
+                manifest.drop(columns=['training_sample_enabled']), 'training')), 2)
+        with patch.object(p, 'DROP_LOW_INFORMATION_CHUNKS', True), \
+                patch.object(p, 'UNET_BATCHING_MODE', 'grid_patches'):
+            with self.assertRaisesRegex(RuntimeError, 'stale manifest'):
+                p.select_ceaset_split_rows(
+                    manifest.drop(columns=['training_sample_enabled']), 'training')
 
     def test_inactive_filter_does_not_invalidate_existing_derived_cache(self):
         cases = pd.DataFrame({'case_id': ['synthetic-case'], 'split': ['training']})
