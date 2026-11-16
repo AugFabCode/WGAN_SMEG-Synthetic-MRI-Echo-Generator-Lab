@@ -858,9 +858,7 @@ def make_ceaset_dataset(
             "batch_size > 1 requires TRAINING_DYNAMIC_ECHO_AXIS=False."
         )
 
-    subset = manifest[
-        manifest["split"].astype(str) == str(split)
-    ].reset_index(drop=True)
+    subset = select_ceaset_split_rows(manifest, split)
 
     if subset.empty:
         raise RuntimeError(f"No chunks for split={split}")
@@ -1033,7 +1031,7 @@ def expected_dataset_batches(
     random_chunk_sample: int | None = None,
     batch_size: int = TRAINING_BATCH_SIZE,
 ) -> int:
-    n = int((manifest["split"].astype(str) == str(split)).sum())
+    n = len(select_ceaset_split_rows(manifest, split))
     if random_chunk_sample is not None:
         n = min(n, int(random_chunk_sample))
     samples = n * int(TRAINING_SAMPLES_PER_CHUNK_PER_EPOCH)
@@ -1082,9 +1080,7 @@ def iter_ceaset_samples_direct(
             "Direct CEASET iterator expects TRAINING_DYNAMIC_ECHO_AXIS=True."
         )
 
-    subset = manifest[
-        manifest["split"].astype(str) == str(split)
-    ].reset_index(drop=True)
+    subset = select_ceaset_split_rows(manifest, split)
 
     if subset.empty:
         raise RuntimeError(f"No chunks for split={split}")
@@ -1181,9 +1177,7 @@ def expected_direct_samples(
     *,
     random_chunk_sample: int | None = None,
 ) -> int:
-    n = int(
-        (manifest["split"].astype(str) == str(split)).sum()
-    )
+    n = len(select_ceaset_split_rows(manifest, split))
     if random_chunk_sample is not None:
         n = min(n, int(random_chunk_sample))
 
@@ -2220,15 +2214,11 @@ def train_ceaset_modality(
     stats = pd.read_csv(CEASET_STATS_CSV)
     print(f"[INIT] {modality}: AFTER stats load rows={len(stats)}", flush=True)
 
-    training_manifest = manifest[
-        manifest["split"].astype(str) == "training"
-    ].reset_index(drop=True)
-    eval_manifest = manifest[
-        manifest["split"].astype(str) == "eval"
-    ].reset_index(drop=True)
+    training_manifest = select_ceaset_split_rows(manifest, "training")
+    eval_manifest = select_ceaset_split_rows(manifest, "eval")
 
     if training_manifest.empty:
-        raise RuntimeError("No training chunks found.")
+        raise RuntimeError("No eligible training chunks found; check the mask and occupancy threshold.")
     if eval_manifest.empty:
         raise RuntimeError("No evaluation chunks found.")
 
