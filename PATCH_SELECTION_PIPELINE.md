@@ -139,7 +139,7 @@ Filtering is inactive in `full_volume` mode (there is only one anatomical sample
 }
 ```
 
-From the dashboard, apply the settings, choose **Rebuild derived training chunks and fast NumPy cache**, then run **Preprocess data** before starting a *new* training run. Reuse the unchanged preprocessed input NIfTIs and existing patient split. Changing the threshold or selection flag changes the derived-data signature; a stale manifest is rejected rather than silently used. Do not enable `REBUILD_PATIENT_SPLIT` just to change patch sampling.
+From the dashboard, apply the settings, choose **Rebuild derived training chunks and fast NumPy cache**, then run **Preprocess data** before starting a *new* training run. Reuse the unchanged preprocessed input NIfTIs and existing patient split. Enabling the training filter or changing its active threshold changes the derived-data signature; a stale manifest is rejected rather than silently used. Leaving the filter disabled preserves the earlier data signature, so an unchanged existing cache does not need a rebuild solely because this feature was installed. Do not enable `REBUILD_PATIENT_SPLIT` just to change patch sampling.
 
 ### Interpreting the manifest
 
