@@ -1177,7 +1177,10 @@ def validate_training_artifacts(cfg=CFG, *, sample_builder=None):
         # Exercise the actual sampler (last acquired echo as target) before a long run.
         for modality in ('magnitude','phase'):
             for partition in ('training','eval'):
-                row = frame[frame.split == partition].iloc[0]
+                subset = select_ceaset_split_rows(frame, partition)
+                if subset.empty:
+                    raise RuntimeError(f'No eligible samples for {partition} after patch selection')
+                row = subset.iloc[0]
                 inputs, target, _ = sample_builder(
                     row, modality, stats, len(cfg.echo_labels)-1, [0,1,2])
                 if not all(np.all(np.isfinite(a)) for a in [target, *inputs.values()]):
