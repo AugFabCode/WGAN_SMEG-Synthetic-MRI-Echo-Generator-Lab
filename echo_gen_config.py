@@ -243,6 +243,12 @@ CHUNK_GRID = (5, 5, 3)
 CHUNK_GRID = _setting('CHUNK_GRID', CHUNK_GRID)
 CHUNK_OVERLAP_VOXELS = 20
 CHUNK_OVERLAP_VOXELS = _setting('CHUNK_OVERLAP_VOXELS', CHUNK_OVERLAP_VOXELS)
+# Source-volume crop is calculated once per subject from the existing BET mask.
+# The downstream patch/full-volume geometry is shared by HDF5 and fast NumPy caches.
+UNET_BATCHING_MODE = _setting('UNET_BATCHING_MODE', 'grid_patches')  # grid_patches | full_volume
+UNET_BRAIN_CROP_ENABLED = _setting('UNET_BRAIN_CROP_ENABLED', False)
+UNET_BRAIN_CROP_MARGIN_VOXELS = _setting('UNET_BRAIN_CROP_MARGIN_VOXELS', 4)
+UNET_PAD_MULTIPLE = _setting('UNET_PAD_MULTIPLE', 8)  # network stride 8, or 16/32
 WRITE_CHUNK_NIFTI = False
 WRITE_CHUNK_NIFTI = _setting('WRITE_CHUNK_NIFTI', WRITE_CHUNK_NIFTI)
 WRITE_CHUNK_HDF5 = True
@@ -582,6 +588,12 @@ def validate_settings():
         if type(globals()[key]) is not int or globals()[key] < 1: raise ValueError(f'{key} must be a positive integer')
     if len(CHUNK_GRID)!=3 or any(type(x) is not int or x < 1 for x in CHUNK_GRID): raise ValueError('Invalid chunk grid')
     if CHUNK_OVERLAP_VOXELS < 0: raise ValueError('Chunk overlap must be nonnegative')
+    if UNET_BATCHING_MODE not in ('grid_patches', 'full_volume'):
+        raise ValueError('UNET_BATCHING_MODE must be grid_patches or full_volume')
+    if type(UNET_BRAIN_CROP_MARGIN_VOXELS) is not int or UNET_BRAIN_CROP_MARGIN_VOXELS < 0:
+        raise ValueError('UNET_BRAIN_CROP_MARGIN_VOXELS must be a nonnegative integer')
+    if type(UNET_PAD_MULTIPLE) is not int or UNET_PAD_MULTIPLE not in (8, 16, 32):
+        raise ValueError('UNET_PAD_MULTIPLE must be 8, 16, or 32')
     if not 0 < BET_FRACTION < 1: raise ValueError('Invalid BET or split fraction')
     if not 1 <= MIN_INPUT_ECHOES <= MAX_INPUT_ECHOES <= 8: raise ValueError('Invalid echo count range')
     if MODEL_L2 < 0 or not 0 <= MODEL_LEAKY_RELU <= 1: raise ValueError('Invalid model regularization/slope')
