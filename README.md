@@ -13,6 +13,7 @@ The research goal is to investigate whether synthetic late echoes, combined with
 - A local dashboard with dataset paths, model parameters, training hyperparameters, a WGAN-GP diagram, epoch curves, low-overhead training MRI previews an event feed and optional process logs.
 - Configuration-based checkpoint names, fixed-validation best-model selection and optimizer-inclusive resume.
 - Compatibility with the existing project folders and both supported cache layouts.
+- Optional per-subject brain-mask ROI cropping, 3-D grid patches or full-volume sampling, and stride-aligned zero padding; reuse of the current HDF5/NumPy chunk pipelines.
 
 ## Quick start
 
@@ -36,7 +37,7 @@ python preprocess_echo_gen.py --config echo_gen_config.json
 python train_echo_gen.py --config echo_gen_config.json
 ```
 
-The training command uses already prepared data; it does not launch preprocessing. The current direct training loop requires **batch size 1**. Full-volume 3D workloads may require substantial GPU memory; CPU mode is intended for small checks.
+The training command uses already prepared data; it does not launch preprocessing. The dashboard's **3D U-Net sampling geometry** controls support the existing grid-patch mode or one full-volume sample per subject, with optional brain-mask ROI cropping and configurable 8/16/32-voxel alignment. Geometry changes require **Rebuild derived training chunks** followed by **Preprocess data** before training. See the [supervisor-oriented comparison](UNET_BATCHING_METHODS.md). The current direct training loop requires **batch size 1**. Full-volume 3D workloads may require substantial GPU memory; CPU mode is intended for small checks.
 
 ## Documentation
 
@@ -45,6 +46,7 @@ The training command uses already prepared data; it does not launch preprocessin
 | [Getting started](GETTING_STARTED.md) | Environment, input data, dashboard, CLI and remote access |
 | [Pipeline and architecture](PIPELINE.md) | Preprocessing, normalization, generator, critic, losses and validation |
 | [Configuration reference](CONFIGURATION.md) | Supported settings, defaults, overrides, checkpoint identity and resume |
+| [3-D U-Net batching methods](UNET_BATCHING_METHODS.md) | **Supervisor guide:** grid patches vs. mask-cropped full volumes, VRAM trade-offs, alignment, sampling and research comparison |
 | [Troubleshooting](TROUBLESHOOTING.md) | Dataset/cache errors, GPU setup, run monitoring and locks |
 | [Development and validation](DEVELOPMENT.md) | Module responsibilities, tests, provenance and verification limits |
 
@@ -67,7 +69,7 @@ The new entry points do not automatically run the source notebook's optional inf
 Configuration, synthetic-data, and preprocessing/training-validation regression tests are available:
 
 ```bash
-python -m unittest -v test_echo_gen.py test_echo_gen_data.py test_echo_gen_preview.py test_echo_gen_partition.py test_echo_gen_events.py
+python -m unittest -v test_echo_gen.py test_echo_gen_data.py test_echo_gen_preview.py test_echo_gen_partition.py test_echo_gen_events.py test_echo_gen_unet_batching.py
 ```
 
 Full ABRIM preprocessing and GPU training have not been verified in the delivery environment. Browser rendering also remains unverified. See [Development and validation](DEVELOPMENT.md) for the checks performed and their limits.
