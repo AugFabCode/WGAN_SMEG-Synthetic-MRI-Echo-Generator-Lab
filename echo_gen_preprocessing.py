@@ -1050,17 +1050,16 @@ def select_ceaset_split_rows(manifest, split):
     preserved; held-out evaluation/test always use the complete source manifest.
     """
     rows = manifest.loc[manifest['split'].astype(str) == str(split)]
-    if str(split) == 'training':
-        if 'training_sample_enabled' in rows.columns:
-            truth = rows['training_sample_enabled'].astype(str).str.strip().str.lower()
-            if not truth.isin(('true', 'false', '1', '0')).all():
-                raise ValueError('Invalid training_sample_enabled values in manifest')
-            rows = rows.loc[truth.isin(('true', '1'))]
-        elif DROP_LOW_INFORMATION_CHUNKS:
+    if str(split) == 'training' and DROP_LOW_INFORMATION_CHUNKS and UNET_BATCHING_MODE == 'grid_patches':
+        if 'training_sample_enabled' not in rows.columns:
             raise RuntimeError(
                 'Missing training_sample_enabled in stale manifest. '
                 'Rebuild derived training chunks with OVERWRITE_DERIVED=True.'
             )
+        truth = rows['training_sample_enabled'].astype(str).str.strip().str.lower()
+        if not truth.isin(('true', 'false', '1', '0')).all():
+            raise ValueError('Invalid training_sample_enabled values in manifest')
+        rows = rows.loc[truth.isin(('true', '1'))]
     return rows.reset_index(drop=True)
 
 
