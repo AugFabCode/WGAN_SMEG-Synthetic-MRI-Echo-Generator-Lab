@@ -1135,8 +1135,10 @@ def _derived_signature(cfg=CFG):
         'unet_brain_crop_enabled': cfg.unet_brain_crop_enabled,
         'unet_brain_crop_margin_voxels': cfg.unet_brain_crop_margin_voxels,
         'unet_pad_multiple': cfg.unet_pad_multiple,
-        'drop_low_information_chunks': cfg.drop_low_information_chunks,
-        'min_brain_fraction_per_chunk': cfg.min_brain_fraction_per_chunk,
+        # Preserve existing cached-data signatures when this opt-in filter is inactive.
+        **({'active_training_brain_fraction': cfg.min_brain_fraction_per_chunk}
+           if cfg.drop_low_information_chunks and cfg.unet_batching_mode == 'grid_patches'
+           else {}),
         'normalization': [MAGNITUDE_SCALE_PERCENTILE, MAGNITUDE_SATURATED_SCALE_PERCENTILE,
             MAGNITUDE_NEAR_CEILING_FRACTION, MAGNITUDE_CEILING_CANDIDATES,
             MAGNITUDE_CEILING_TOLERANCE, PHASE_RATE_PERCENTILE, PHASE_SCALE_REFERENCE_TE_MS],
