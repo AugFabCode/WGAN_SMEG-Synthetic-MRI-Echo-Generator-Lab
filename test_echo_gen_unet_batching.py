@@ -232,6 +232,7 @@ class UnetBatchingTests(unittest.TestCase):
                 geometry(drop=True, threshold=0.03),
                 geometry(drop=True, threshold=0.10),
                 geometry(mode='full_volume', drop=True, threshold=0.10),
+                geometry(mode='full_volume', drop=False, threshold=0.03),
             ]
             for cfg in configs:
                 cfg.echo_labels = p.CFG.echo_labels
@@ -239,7 +240,8 @@ class UnetBatchingTests(unittest.TestCase):
         self.assertEqual(sigs[0], sigs[1])
         self.assertNotEqual(sigs[0], sigs[2])
         self.assertNotEqual(sigs[2], sigs[3])
-        self.assertEqual(sigs[0], sigs[4])
+        self.assertNotEqual(sigs[0], sigs[4])  # Distinct geometry must invalidate cache.
+        self.assertEqual(sigs[4], sigs[5])  # Filtering does not affect full-volume geometry.
 
 
 if __name__ == "__main__":
