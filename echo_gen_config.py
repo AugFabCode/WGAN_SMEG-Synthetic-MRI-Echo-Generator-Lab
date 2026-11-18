@@ -249,6 +249,8 @@ UNET_BATCHING_MODE = _setting('UNET_BATCHING_MODE', 'grid_patches')  # grid_patc
 UNET_BRAIN_CROP_ENABLED = _setting('UNET_BRAIN_CROP_ENABLED', False)
 UNET_BRAIN_CROP_MARGIN_VOXELS = _setting('UNET_BRAIN_CROP_MARGIN_VOXELS', 4)
 UNET_PAD_MULTIPLE = _setting('UNET_PAD_MULTIPLE', 8)  # network stride 8, or 16/32
+DROP_LOW_INFORMATION_CHUNKS = _setting('DROP_LOW_INFORMATION_CHUNKS', False)
+MIN_BRAIN_FRACTION_PER_CHUNK = _setting('MIN_BRAIN_FRACTION_PER_CHUNK', 0.03)
 WRITE_CHUNK_NIFTI = False
 WRITE_CHUNK_NIFTI = _setting('WRITE_CHUNK_NIFTI', WRITE_CHUNK_NIFTI)
 WRITE_CHUNK_HDF5 = True
@@ -596,6 +598,8 @@ def validate_settings():
         raise ValueError('UNET_BRAIN_CROP_MARGIN_VOXELS must be a nonnegative integer')
     if type(UNET_PAD_MULTIPLE) is not int or UNET_PAD_MULTIPLE not in (8, 16, 32):
         raise ValueError('UNET_PAD_MULTIPLE must be 8, 16, or 32')
+    if not 0.0 <= MIN_BRAIN_FRACTION_PER_CHUNK <= 1.0:
+        raise ValueError('MIN_BRAIN_FRACTION_PER_CHUNK must be between 0 and 1')
     if not 0 < BET_FRACTION < 1: raise ValueError('Invalid BET or split fraction')
     if not 1 <= MIN_INPUT_ECHOES <= MAX_INPUT_ECHOES <= 8: raise ValueError('Invalid echo count range')
     if MODEL_L2 < 0 or not 0 <= MODEL_LEAKY_RELU <= 1: raise ValueError('Invalid model regularization/slope')

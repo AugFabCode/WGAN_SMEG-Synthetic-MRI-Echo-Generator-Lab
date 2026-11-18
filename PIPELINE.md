@@ -1,6 +1,6 @@
 # Pipeline and architecture
 
-[README](README.md) · [Configuration](CONFIGURATION.md) · [Development](DEVELOPMENT.md) · [U-Net batching methods](UNET_BATCHING_METHODS.md)
+[README](README.md) · [Configuration](CONFIGURATION.md) · [Development](DEVELOPMENT.md) · [U-Net batching methods](UNET_BATCHING_METHODS.md) · [Rendered foreground-aware patch pipeline](PATCH_SELECTION_PIPELINE.md)
 
 ## Scientific scope
 
@@ -16,10 +16,10 @@ The intended downstream workflow combines acquired and synthetic echoes for SWI/
 4. Build a TE3 magnitude BET mask (`-f 0.2`, robust center and mask output by default), then apply the configured 2 mm erosion.
 5. Write physical-value masked magnitude/phase images and optional shell-style normalized QC/export images.
 6. Create or reuse a deterministic subject-level training/evaluation/test split: defaults 70%/15%/15%, seed 42. Opt-in small-dataset mode retains the original two-way 80% training / 20% validation split (no independent held-out test) and can reuse a compatible legacy workbook without rewriting it. Allocation uses independent subjects, keeps sessions/runs together, and guarantees at least one subject per nonzero partition. Test rows are prepared in the same cache layout but excluded from training, epoch validation, early stopping and best-checkpoint selection. A separate final test evaluation workflow is not implemented.
-7. Compute physical-value normalization statistics, create overlapping chunks and build the uncompressed float32 NumPy cache.
+7. Compute physical-value normalization statistics, create overlapping chunks, annotate nonempty patches with brain-mask occupancy and train-only eligibility flags, and build the uncompressed float32 NumPy cache.
 8. Record the derived-data completion signature and validate artifact consistency.
 
-Chunk cores cover remainder voxels. Padding makes spatial dimensions divisible by 8 (the generator's native stride), or optionally 16/32. The default grid is 5 × 5 × 3 with 20-voxel overlap; resulting memory use depends on the original volume shape. **Optionally**, the existing BET/eroded brain mask defines a subject-specific bounded ROI before the same grid logic runs; the alternative full-volume mode applies a 1 × 1 × 1 grid. Both paths reuse the same HDF5 and NumPy chunk cache writer and the existing training sampler. See the [supervisor comparison of grid patches and full-volume training](UNET_BATCHING_METHODS.md), including memory trade-offs and explicit coordinate transforms.
+Chunk cores cover remainder voxels. Padding makes spatial dimensions divisible by 8 (the generator's native stride), or optionally 16/32. The default grid is 5 × 5 × 3 with 20-voxel overlap; resulting memory use depends on the original volume shape. **Optionally**, the existing BET/eroded brain mask defines a subject-specific bounded ROI before the same grid logic runs; the alternative full-volume mode applies a 1 × 1 × 1 grid. Both paths reuse the same HDF5 and NumPy chunk cache writer and the existing training sampler. See the [supervisor comparison of grid patches and full-volume training](UNET_BATCHING_METHODS.md), including memory trade-offs and explicit coordinate transforms. Optionally, the training iterator skips patches whose brain-mask occupancy is below the user-set threshold, while validation, held-out test data, the stored patches, and reconstruction geometry remain complete. The [foreground-aware patch selection guide](PATCH_SELECTION_PIPELINE.md) includes GitHub-rendered Mermaid diagrams and a reproducible supervisor-facing experiment.
 
 Training validates the artifact signature, cohort, partition assignments, per-echo statistics and referenced cache files. It additionally exercises the training sampler for both modalities and both partitions before the epoch loop. Preprocessing performs artifact validation without importing the training module.
 

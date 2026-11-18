@@ -12,7 +12,7 @@ An acquired volume frequently has a large, entirely empty border. Sending empty 
 1. **Grid patches (existing method)**: subdivide each image into overlapping small 3-D training samples.
 2. **Full volume (new option)**: pass one entire 3-D brain volume per subject, optionally cropped tightly to the brain mask.
 
-**Brain bounding-box cropping is an *independent* preprocessing option**, applicable to either method. Thus the dashboard provides four combinations, not two entirely separate model implementations.
+**Brain bounding-box cropping is an *independent* preprocessing option**, applicable to either method. The dashboard therefore provides four spatial combinations, not two independent model implementations. An additional **train-only foreground-aware patch selector** is available for grid mode; see the [rendered patch-selection pipeline](PATCH_SELECTION_PIPELINE.md).
 
 ## Comparison at a glance
 
@@ -26,7 +26,7 @@ An acquired volume frequently has a large, entirely empty border. Sending empty 
 | Spatial context | Local neighborhood plus configurable overlap | Full retained 3-D anatomy in a single network call |
 | Work per epoch | Many chunks per patient, potentially many steps | One volume per patient (plus configured echo-sampling repeats) |
 | Border effects | Convolutions at patch edges; overlap provides context | No artificial internal grid boundaries |
-| Sampling coverage | Grid covers entire ROI; chunks with no foreground are skipped | Whole retained ROI per subject |
+| Sampling coverage | Grid covers entire ROI; chunks with no foreground are skipped. Optional train-only occupancy filtering skips near-empty patches without deleting them | Whole retained ROI per subject |
 | Batch dimension | **Fixed at 1** in this codebase | **Fixed at 1** in this codebase |
 | Suitable first experiment | **Yes** (including on the A6000) | Only after confirming GPU memory headroom |
 
@@ -57,7 +57,7 @@ The default remains `UNET_BATCHING_MODE="grid_patches"`, `UNET_BRAIN_CROP_ENABLE
 - Existing default grid: `CHUNK_GRID=[5,5,3]`, or up to 75 nominal chunks per case.
 - Existing default overlap: `CHUNK_OVERLAP_VOXELS=20`.
 - The splitter calculates complete voxel coverage, including division remainders, and pads chunks to a multiple of the configured stride (8 by default).
-- Chunks with no brain voxels are omitted from the manifest.
+- Chunks with no brain voxels are omitted from the manifest. Optionally, the training iterator also skips patches with a small *nonzero* brain fraction, while preserving their cached data for held-out evaluation and reconstruction.
 - Optionally cropping first creates a smaller ROI and often reduces the amount of background and the required padded chunk dimensions.
 
 Unlike random patch extraction, the current grid is **deterministic**. Randomness comes from selecting input/target echo configurations, spatial augmentations, and shuffled chunk order. `TRAINING_SAMPLES_PER_CHUNK_PER_EPOCH` controls how many echo-configuration samples are drawn for each selected chunk per epoch.
@@ -80,6 +80,8 @@ For example, a `256×256×176` source contains about 11.53 million voxels. A hyp
 | `UNET_BRAIN_CROP_ENABLED` | `false` | Opt in to foreground mask-based spatial cropping |
 | `UNET_BRAIN_CROP_MARGIN_VOXELS` | `4` | Additional context on each of the six ROI faces, clipped to image limits |
 | `UNET_PAD_MULTIPLE` | `8` | 8 matches current U-Net's 3-stage spatial downsampling; 16/32 add more padding |
+| `DROP_LOW_INFORMATION_CHUNKS` | `false` | Opt-in training-only grid-patch selection; cached data and evaluation/test remain complete |
+| `MIN_BRAIN_FRACTION_PER_CHUNK` | `0.03` | Minimum proportion of foreground brain-mask voxels in a padded chunk (range 0 to 1) |
 | `CHUNK_GRID` | `[5,5,3]` | Active for grid mode only |
 | `CHUNK_OVERLAP_VOXELS` | `20` | Active for grid mode only |
 | `TRAINING_SAMPLES_PER_CHUNK_PER_EPOCH` | `1` | Independent input/target TE configurations sampled per spatial unit per epoch |

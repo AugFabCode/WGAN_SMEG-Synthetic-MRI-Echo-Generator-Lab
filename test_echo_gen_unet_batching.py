@@ -1,5 +1,6 @@
 """Synthetic geometry regression tests; no MRI dataset or TensorFlow required."""
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,7 +10,7 @@ import echo_gen_preprocessing as p
 
 
 def geometry(*, mode="grid_patches", crop=True, margin=2, multiple=8,
-             grid=(2, 2, 2), overlap=2):
+             grid=(2, 2, 2), overlap=2, drop=False, threshold=0.03):
     return SimpleNamespace(
         unet_batching_mode=mode,
         unet_brain_crop_enabled=crop,
@@ -17,6 +18,8 @@ def geometry(*, mode="grid_patches", crop=True, margin=2, multiple=8,
         unet_pad_multiple=multiple,
         chunk_grid=grid,
         chunk_overlap_voxels=overlap,
+        drop_low_information_chunks=drop,
+        min_brain_fraction_per_chunk=threshold,
     )
 
 
@@ -143,6 +146,125 @@ class UnetBatchingTests(unittest.TestCase):
             p.build_training_spatial_specs(self.mask, geometry(mode="bad"))
         with self.assertRaisesRegex(ValueError, "pad_multiple"):
             p.build_chunk_specs((16, 16, 16), (1, 1, 1), 0, pad_multiple=10)
+
+
+    def test_foreground_fraction_uses_padded_patch_not_only_brain_bbox(self):
+        mask = np.zeros((16, 16, 16), dtype=np.float32)
+        mask[:4, :4, :4] = 1
+        spec, = p.build_training_spatial_specs(
+            mask, geometry(crop=False, grid=(1, 1, 1), overlap=0))
+        rows = p.annotate_training_patch_specs(
+            mask, [spec], geometry(drop=True, crop=False, grid=(1,1,1),
+                                   overlap=0, threshold=0.03))
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]['brain_fraction'], 64/4096)
+        # A single low-occupancy chunk must survive the per-subject safeguard.
+        self.assertTrue(rows[0]['training_sample_enabled'])
+
+    def test_only_training_patches_are_filtered_and_not_deleted(self):
+        mask = np.zeros((32, 16, 16), dtype=np.float32)
+        mask[:16, :, :] = 1  # one fully occupied chunk, one marginal patch
+        mask[16:18, :2, :2] = 1
+        cfg = geometry(crop=False, grid=(2, 1, 1), overlap=0,
+                       drop=True, threshold=0.03)
+        specs = p.build_training_spatial_specs(mask, cfg)
+        annotated = p.annotate_training_patch_specs(mask, specs, cfg, split_name='training')
+        self.assertEqual(len(annotated), 2)
+        self.assertEqual(
+            [s['training_sample_enabled'] for s in annotated], [True, False])
+        self.assertAlmostEqual(annotated[1]['brain_fraction'], 8/4096)
+        manifest = pd.DataFrame({
+            'split': ['training', 'training', 'eval', 'test'],
+            'training_sample_enabled': [True, False, False, False],
+            'chunk_id': ['full', 'edge', 'validation', 'held_out'],
+        })
+        with patch.object(p, 'DROP_LOW_INFORMATION_CHUNKS', True), \
+                patch.object(p, 'UNET_BATCHING_MODE', 'grid_patches'):
+            self.assertEqual(p.select_ceaset_split_rows(
+                manifest, 'training')['chunk_id'].tolist(), ['full'])
+        self.assertEqual(p.select_ceaset_split_rows(
+            manifest, 'eval')['chunk_id'].tolist(), ['validation'])
+        self.assertEqual(p.select_ceaset_split_rows(
+            manifest, 'test')['chunk_id'].tolist(), ['held_out'])
+
+    def test_training_subject_with_no_patches_above_threshold_keeps_best(self):
+        mask = np.zeros((32, 16, 16), dtype=np.float32)
+        mask[:2, :2, :2] = 1
+        mask[16:20, :2, :2] = 1
+        cfg = geometry(crop=False, grid=(2,1,1), overlap=0,
+                       drop=True, threshold=0.95)
+        rows = p.annotate_training_patch_specs(
+            mask, p.build_training_spatial_specs(mask, cfg), cfg)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(sum(s['training_sample_enabled'] for s in rows), 1)
+        self.assertTrue(rows[1]['training_sample_enabled'])
+
+    def test_eval_test_and_full_volume_never_use_train_only_threshold(self):
+        mask = np.zeros((16,16,16), np.float32)
+        mask[:2,:2,:2] = 1
+        for split, mode in (('eval','grid_patches'), ('test','grid_patches'),
+                            ('training','full_volume')):
+            cfg = geometry(mode=mode, crop=False, grid=(1,1,1),
+                           overlap=0, drop=True, threshold=0.99)
+            rows = p.annotate_training_patch_specs(
+                mask, p.build_training_spatial_specs(mask, cfg), cfg, split_name=split)
+            self.assertTrue(rows[0]['training_sample_enabled'])
+
+    def test_empty_mask_chunk_still_skipped_and_invalid_manifest_rejected(self):
+        mask = np.zeros((32,16,16), np.float32)
+        mask[:2,:2,:2] = 1
+        cfg = geometry(crop=False, grid=(2,1,1), overlap=0, drop=True)
+        rows = p.annotate_training_patch_specs(
+            mask, p.build_training_spatial_specs(mask, cfg), cfg)
+        self.assertEqual(len(rows), 1)
+        invalid = pd.DataFrame({'split':['training'],
+                                'training_sample_enabled':['invalid']})
+        with patch.object(p, 'DROP_LOW_INFORMATION_CHUNKS', True), \
+                patch.object(p, 'UNET_BATCHING_MODE', 'grid_patches'):
+            with self.assertRaisesRegex(ValueError, 'Invalid training_sample_enabled'):
+                p.select_ceaset_split_rows(invalid, 'training')
+
+
+
+    def test_sampler_respects_enable_switch_and_full_volume_bypass(self):
+        manifest = pd.DataFrame({
+            'split': ['training', 'training'],
+            'chunk_id': ['high', 'low'],
+            'training_sample_enabled': [True, False],
+        })
+        with patch.object(p, 'DROP_LOW_INFORMATION_CHUNKS', False):
+            self.assertEqual(len(p.select_ceaset_split_rows(manifest, 'training')), 2)
+        with patch.object(p, 'DROP_LOW_INFORMATION_CHUNKS', True), \
+                patch.object(p, 'UNET_BATCHING_MODE', 'full_volume'):
+            self.assertEqual(len(p.select_ceaset_split_rows(manifest, 'training')), 2)
+            self.assertEqual(len(p.select_ceaset_split_rows(
+                manifest.drop(columns=['training_sample_enabled']), 'training')), 2)
+        with patch.object(p, 'DROP_LOW_INFORMATION_CHUNKS', True), \
+                patch.object(p, 'UNET_BATCHING_MODE', 'grid_patches'):
+            with self.assertRaisesRegex(RuntimeError, 'stale manifest'):
+                p.select_ceaset_split_rows(
+                    manifest.drop(columns=['training_sample_enabled']), 'training')
+
+    def test_inactive_filter_does_not_invalidate_existing_derived_cache(self):
+        cases = pd.DataFrame({'case_id': ['synthetic-case'], 'split': ['training']})
+        with patch.object(p, '_available_complete_case_ids', return_value=[]), \
+                patch.object(p, 'load_or_create_ceaset_split', return_value=cases):
+            configs = [
+                geometry(drop=False, threshold=0.01),
+                geometry(drop=False, threshold=0.20),
+                geometry(drop=True, threshold=0.03),
+                geometry(drop=True, threshold=0.10),
+                geometry(mode='full_volume', drop=True, threshold=0.10),
+                geometry(mode='full_volume', drop=False, threshold=0.03),
+            ]
+            for cfg in configs:
+                cfg.echo_labels = p.CFG.echo_labels
+            sigs = [p._derived_signature(cfg) for cfg in configs]
+        self.assertEqual(sigs[0], sigs[1])
+        self.assertNotEqual(sigs[0], sigs[2])
+        self.assertNotEqual(sigs[2], sigs[3])
+        self.assertNotEqual(sigs[0], sigs[4])  # Distinct geometry must invalidate cache.
+        self.assertEqual(sigs[4], sigs[5])  # Filtering does not affect full-volume geometry.
 
 
 if __name__ == "__main__":
