@@ -513,6 +513,12 @@ TRAINING_RESUME = _setting('TRAINING_RESUME', TRAINING_RESUME)
 # quantitative inter-echo intensity/phase evolution is the learning target.
 TRAINING_RANDOM_FLIPS = True
 TRAINING_RANDOM_FLIPS = _setting('TRAINING_RANDOM_FLIPS', TRAINING_RANDOM_FLIPS)
+# Opt-in lossless right-angle rotations and integer-voxel translations at batch
+# preparation time. Never resample wrapped MRI phase or alter canonical caches.
+TRAINING_SAFE_RIGID_AUGMENTATION = _setting('TRAINING_SAFE_RIGID_AUGMENTATION', False)
+TRAINING_SAFE_TRANSLATION_VOXELS = _setting('TRAINING_SAFE_TRANSLATION_VOXELS', 4)
+TRAINING_SAFE_ROTATION_PROBABILITY = _setting('TRAINING_SAFE_ROTATION_PROBABILITY', 0.75)
+TRAINING_SAFE_ROTATION_PLANES = _setting('TRAINING_SAFE_ROTATION_PLANES', 'in_plane')  # in_plane | all
 
 # WGAN-GP and generator-loss weights. These are starting values, not claimed optima.
 TRAINING_HYPERPARAMETERS = {
@@ -592,6 +598,12 @@ def validate_settings():
     if CHUNK_OVERLAP_VOXELS < 0: raise ValueError('Chunk overlap must be nonnegative')
     if type(TRAINING_SAMPLES_PER_CHUNK_PER_EPOCH) is not int or TRAINING_SAMPLES_PER_CHUNK_PER_EPOCH < 1:
         raise ValueError('TRAINING_SAMPLES_PER_CHUNK_PER_EPOCH must be a positive integer')
+    if type(TRAINING_SAFE_TRANSLATION_VOXELS) is not int or TRAINING_SAFE_TRANSLATION_VOXELS < 0:
+        raise ValueError('TRAINING_SAFE_TRANSLATION_VOXELS must be a nonnegative integer')
+    if not 0 <= TRAINING_SAFE_ROTATION_PROBABILITY <= 1:
+        raise ValueError('TRAINING_SAFE_ROTATION_PROBABILITY must lie between 0 and 1')
+    if TRAINING_SAFE_ROTATION_PLANES not in ('in_plane', 'all'):
+        raise ValueError('TRAINING_SAFE_ROTATION_PLANES must be in_plane or all')
     if UNET_BATCHING_MODE not in ('grid_patches', 'full_volume'):
         raise ValueError('UNET_BATCHING_MODE must be grid_patches or full_volume')
     if type(UNET_BRAIN_CROP_MARGIN_VOXELS) is not int or UNET_BRAIN_CROP_MARGIN_VOXELS < 0:
