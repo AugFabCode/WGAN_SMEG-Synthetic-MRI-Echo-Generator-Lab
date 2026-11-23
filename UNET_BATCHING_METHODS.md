@@ -14,6 +14,8 @@ An acquired volume frequently has a large, entirely empty border. Sending empty 
 
 **Brain bounding-box cropping is an *independent* preprocessing option**, applicable to either method. The dashboard therefore provides four spatial combinations, not two independent model implementations. An additional **train-only foreground-aware patch selector** is available for grid mode; see the [rendered patch-selection pipeline](PATCH_SELECTION_PIPELINE.md).
 
+**Further training-only variation:** After loading the already prepared patches, the optional [signal-safe rigid augmentation](SAFE_RIGID_AUGMENTATION.md) randomly rotates samples by exact 90-degree steps and translates them by integer voxels only when the entire original nonzero signal support remains inside the unchanged spatial extent. All input echoes, acquired targets, physics baselines and brain masks share one transform. No interpolation, cache rewrite or alteration of evaluation/test sampling is introduced.
+
 ## Comparison at a glance
 
 | Property | Grid patches | One full volume per subject |
