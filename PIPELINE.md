@@ -1,6 +1,6 @@
 # Pipeline and architecture
 
-[README](README.md) · [Configuration](CONFIGURATION.md) · [Development](DEVELOPMENT.md) · [U-Net batching methods](UNET_BATCHING_METHODS.md) · [Rendered foreground-aware patch pipeline](PATCH_SELECTION_PIPELINE.md)
+[README](README.md) · [Configuration](CONFIGURATION.md) · [Development](DEVELOPMENT.md) · [U-Net batching methods](UNET_BATCHING_METHODS.md) · [Rendered foreground-aware patch pipeline](PATCH_SELECTION_PIPELINE.md) · [Signal-safe batch augmentation](SAFE_RIGID_AUGMENTATION.md)
 
 ## Scientific scope
 
@@ -22,6 +22,10 @@ The intended downstream workflow combines acquired and synthetic echoes for SWI/
 Chunk cores cover remainder voxels. Padding makes spatial dimensions divisible by 8 (the generator's native stride), or optionally 16/32. The default grid is 5 × 5 × 3 with 20-voxel overlap; resulting memory use depends on the original volume shape. **Optionally**, the existing BET/eroded brain mask defines a subject-specific bounded ROI before the same grid logic runs; the alternative full-volume mode applies a 1 × 1 × 1 grid. Both paths reuse the same HDF5 and NumPy chunk cache writer and the existing training sampler. See the [supervisor comparison of grid patches and full-volume training](UNET_BATCHING_METHODS.md), including memory trade-offs and explicit coordinate transforms. Optionally, the training iterator skips patches whose brain-mask occupancy is below the user-set threshold, while validation, held-out test data, the stored patches, and reconstruction geometry remain complete. The [foreground-aware patch selection guide](PATCH_SELECTION_PIPELINE.md) includes GitHub-rendered Mermaid diagrams and a reproducible supervisor-facing experiment.
 
 Training validates the artifact signature, cohort, partition assignments, per-echo statistics and referenced cache files. It additionally exercises the training sampler for both modalities and both partitions before the epoch loop. Preprocessing performs artifact validation without importing the training module.
+
+## Signal-safe training-batch augmentation
+
+After loading canonical HDF5/NumPy chunks and selecting input/target echoes, the optional training-only [signal-safe rigid augmentation](SAFE_RIGID_AUGMENTATION.md) applies integer-voxel translations and quarter-turn rotations to all sample tensors with a single shared index mapping. Every nonzero value must remain within the original patch boundaries; unsafe orientations are rejected before transformation. No continuous-angle interpolation or cached augmentation datasets are produced. The implementation leaves preprocessing-derived signatures, validation and held-out testing unchanged. The [English rendered pipeline](SAFE_RIGID_AUGMENTATION.md) describes the containment proof and MRI physical-spacing restrictions.
 
 ## Two normalization domains
 
