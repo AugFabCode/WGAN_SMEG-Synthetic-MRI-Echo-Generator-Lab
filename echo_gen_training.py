@@ -1,6 +1,7 @@
 """Original CEASET architecture, sampling, WGAN-GP loss and training loop."""
 from echo_gen_preprocessing import *
 from echo_gen_preview import PreviewWriter, axial_chunk_axis
+from echo_gen_augmentation import augment_rigid_3d
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers, regularizers
@@ -593,22 +594,33 @@ def sample_echo_configuration(
 def _augment_spatial_np(
     arrays: Sequence[np.ndarray],
     rng: np.random.Generator,
-) -> list[np.ndarray]:
-    outputs = [np.asarray(x) for x in arrays]
-    if not TRAINING_RANDOM_FLIPS:
-        return outputs
+    *,
+    return_metadata: bool = False,
+) -> list[np.ndarray] | tuple[list[np.ndarray], dict]:
+    """One synchronized geometry for all acquired echoes, targets and masks.
 
-    flips = [bool(rng.integers(0, 2)) for _ in range(3)]
+    Flips retain their earlier semantics. Additional rigid transforms operate
+    on these already-prepared samples and are disabled unless opted in.
+    """
+    outputs = [np.asarray(x) for x in arrays]
+    flips = [bool(rng.integers(0, 2)) for _ in range(3)] if TRAINING_RANDOM_FLIPS else [False] * 3
     result = []
     for arr in outputs:
         y = arr
-        # echo_images = [K,H,W,D,C], target/baseline/mask = [H,W,D,C]
         offset = 1 if arr.ndim == 5 else 0
         for spatial_axis, do_flip in enumerate(flips):
             if do_flip:
                 y = np.flip(y, axis=offset + spatial_axis)
         result.append(np.ascontiguousarray(y))
-    return result
+    result, rigid_meta = augment_rigid_3d(
+        result, rng,
+        enabled=TRAINING_SAFE_RIGID_AUGMENTATION,
+        max_translation_voxels=TRAINING_SAFE_TRANSLATION_VOXELS,
+        rotation_probability=TRAINING_SAFE_ROTATION_PROBABILITY,
+        rotation_planes=TRAINING_SAFE_ROTATION_PLANES,
+    )
+    rigid_meta['flipped_axes'] = [i for i, flag in enumerate(flips) if flag]
+    return (result, rigid_meta) if return_metadata else result
 
 
 def make_ceaset_sample_from_configuration(
@@ -740,11 +752,13 @@ def make_ceaset_sample_from_configuration(
             reliability_images=phase_reliability_arr,
         )
 
+    spatial_augmentation = None
     if augment_rng is not None:
         arrays = [echo_images, target, baseline, mask]
         if aux_baseline is not None:
             arrays.append(aux_baseline)
-        augmented = _augment_spatial_np(arrays, augment_rng)
+        augmented, spatial_augmentation = _augment_spatial_np(
+            arrays, augment_rng, return_metadata=True)
         echo_images, target, baseline, mask = augmented[:4]
         if aux_baseline is not None:
             aux_baseline = augmented[4]
@@ -776,6 +790,8 @@ def make_ceaset_sample_from_configuration(
         "regime": regime,
         "scale": float(scale),
     }
+    if spatial_augmentation is not None:
+        meta["spatial_augmentation"] = spatial_augmentation
     return inputs, target, meta
 
 
