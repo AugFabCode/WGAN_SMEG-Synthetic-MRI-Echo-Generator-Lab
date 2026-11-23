@@ -15,6 +15,7 @@ The research goal is to investigate whether synthetic late echoes, combined with
 - Compatibility with the existing project folders and both supported cache layouts.
 - Optional per-subject brain-mask ROI cropping, 3-D grid patches or full-volume sampling, and stride-aligned zero padding; reuse of the current HDF5/NumPy chunk pipelines.
 - Optional **brain-aware training patch selection**: measure foreground-mask occupancy, skip nearly empty grid patches only during training, and retain complete nonempty geometry for evaluation and SWI/QSM assembly; see the [rendered pipeline and scientific rationale](PATCH_SELECTION_PIPELINE.md).
+- Optional **signal-safe 3-D training augmentation**: exact voxel-preserving right-angle rotations and integer translations applied identically to all echoes, the target, physics baselines and brain mask. See the [English illustrated pipeline](SAFE_RIGID_AUGMENTATION.md).
 
 ## Quick start
 

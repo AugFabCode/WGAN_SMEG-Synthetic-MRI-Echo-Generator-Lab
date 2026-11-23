@@ -56,6 +56,30 @@ class ConfigurationTests(unittest.TestCase):
         other=self.resolve({'TRAINING_PREVIEW_ENABLED':False,'TRAINING_PREVIEW_INTERVAL_SECONDS':120.0})
         self.assertEqual(first['RUN_NAME'],other['RUN_NAME'])
         self.resolve({'TRAINING_PREVIEW_INTERVAL_SECONDS':1.0},ok=False)
+    def test_safe_rigid_augmentation_is_opt_in_and_validated(self):
+        baseline = self.resolve()
+        self.assertFalse(baseline['TRAINING_SAFE_RIGID_AUGMENTATION'])
+        self.assertEqual(baseline['TRAINING_SAFE_TRANSLATION_VOXELS'], 4)
+        self.assertEqual(baseline['TRAINING_SAFE_ROTATION_PLANES'], 'in_plane')
+        changed = self.resolve({
+            'TRAINING_SAFE_RIGID_AUGMENTATION': True,
+            'TRAINING_SAFE_TRANSLATION_VOXELS': 6,
+            'TRAINING_SAFE_ROTATION_PROBABILITY': 1.0,
+            'TRAINING_SAFE_ROTATION_PLANES': 'all',
+        })
+        self.assertTrue(changed['TRAINING_SAFE_RIGID_AUGMENTATION'])
+        self.assertNotEqual(baseline['RUN_NAME'], changed['RUN_NAME'])
+        for invalid in (
+            {'TRAINING_SAFE_RIGID_AUGMENTATION': 1},
+            {'TRAINING_SAFE_TRANSLATION_VOXELS': -1},
+            {'TRAINING_SAFE_TRANSLATION_VOXELS': 2.5},
+            {'TRAINING_SAFE_ROTATION_PROBABILITY': -0.01},
+            {'TRAINING_SAFE_ROTATION_PROBABILITY': 1.01},
+            {'TRAINING_SAFE_ROTATION_PLANES': 'oblique'},
+        ):
+            with self.subTest(invalid=invalid):
+                self.resolve(invalid, ok=False)
+
     def test_repository_and_notebook_cache_layout(self):
         for folder in ['09_chunks_553','10_training_cache_npy']:(self.root/'preprocess'/folder).mkdir(parents=True)
         r=self.resolve();self.assertTrue(r['CEASET_CHUNK_ROOT'].endswith('09_chunks_553'))

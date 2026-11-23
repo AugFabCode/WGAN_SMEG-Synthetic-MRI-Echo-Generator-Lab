@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - 'feature/unet-*'
+      - 'feature/signal-safe-*'
 
 jobs:
   preprocessing-and-geometry:
@@ -23,7 +24,7 @@ jobs:
       - name: Install preprocessing dependencies
         run: python -m pip install -r requirements-echo-gen-preprocess.txt
       - name: Verify syntax of edited modules
-        run: python -m py_compile echo_gen_config.py echo_gen_preprocessing.py echo_gen_dashboard.py
+        run: python -m py_compile echo_gen_config.py echo_gen_preprocessing.py echo_gen_training.py echo_gen_augmentation.py echo_gen_dashboard.py
       - name: Run synthetic and configuration regression suite
         run: |
           python -m unittest -v \
@@ -32,4 +33,5 @@ jobs:
             test_echo_gen_preview.py \
             test_echo_gen_partition.py \
             test_echo_gen_events.py \
-            test_echo_gen_unet_batching.py
+            test_echo_gen_unet_batching.py \
+            test_echo_gen_augmentation.py

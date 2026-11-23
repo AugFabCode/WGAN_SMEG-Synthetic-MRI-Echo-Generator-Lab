@@ -1,6 +1,6 @@
 # Configuration reference
 
-[README](README.md) · [Getting started](GETTING_STARTED.md) · [Pipeline](PIPELINE.md) · [U-Net batching comparison](UNET_BATCHING_METHODS.md) · [Rendered patch-selection pipeline](PATCH_SELECTION_PIPELINE.md)
+[README](README.md) · [Getting started](GETTING_STARTED.md) · [Pipeline](PIPELINE.md) · [U-Net batching comparison](UNET_BATCHING_METHODS.md) · [Rendered patch-selection pipeline](PATCH_SELECTION_PIPELINE.md) · [Signal-safe 3-D augmentation](SAFE_RIGID_AUGMENTATION.md)
 
 ## Configuration files and precedence
 
@@ -50,6 +50,21 @@ Per-case override keys omit the initial `sub-`, for example `001_run-1` or `001_
 U-Net spatial sampling is explained for scientific review in [3-D U-Net batching methods](UNET_BATCHING_METHODS.md). The `UNET_BRAIN_CROP_ENABLED` switch is independent of patch/full-volume mode. A full volume is **not** a multi-subject minibatch; `TRAINING_BATCH_SIZE` remains fixed at 1. Both modes reuse the same preprocessing and direct training architecture. Optional chunk NIfTI exports record the correct source scanner-space affine after axis transpose and padding, while NPY/HDF5 reconstruction uses the source-coordinate manifest.
 
 Preprocessing cache reuse is signature-checked. A changed source, cohort, chunk geometry or normalization setup may require a rebuild. Only enable overwrite flags when that rebuild is intended. The high-level preparation function rebuilds derived outputs together when needed; lower-level compatibility flags such as `OVERWRITE_CHUNKS` are not a substitute for `OVERWRITE_DERIVED`.
+
+## Training-batch spatial augmentation
+
+The optional **signal-safe rigid training augmentation** is implemented in `echo_gen_augmentation.py` and documented with [GitHub-rendered pipeline diagrams](SAFE_RIGID_AUGMENTATION.md). It is executed on CPU after prepared MRI chunks are loaded, not during FSL/BET preprocessing and not by rewriting the source HDF5/NumPy cache. Existing `TRAINING_RANDOM_FLIPS=true` is preserved.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `TRAINING_SAFE_RIGID_AUGMENTATION` | `false` | Opt in to exact right-angle rotations and integer translations |
+| `TRAINING_SAFE_TRANSLATION_VOXELS` | `4` | Maximum randomized anatomical centre displacement (integer voxels) within safe bounds |
+| `TRAINING_SAFE_ROTATION_PROBABILITY` | `0.75` | Chance to request a right-angle orientation (0–1) |
+| `TRAINING_SAFE_ROTATION_PLANES` | `"in_plane"` | `in_plane` is the default; `all` is appropriate only for isotropic voxels |
+| `TRAINING_RANDOM_FLIPS` | `true` | Existing train-only spatial flips |
+| `TRAINING_SAMPLES_PER_CHUNK_PER_EPOCH` | `1` | Repeats independently seeded training batch preparation per chunk |
+
+The complete union of nonzero sample tensors must fit the original patch shape after the candidate rigid transform. Non-fitting orientations are rejected. Spatial values are copied without intensity/phase interpolation; magnitude, phase, mask, target and physics baselines remain in register. Validation, held-out test and downstream reconstructed NIfTI volumes are never augmented. Turning on this feature **does not require `OVERWRITE_PREPROCESSING` or `OVERWRITE_DERIVED`**.
 
 ## Cache layout selection
 
