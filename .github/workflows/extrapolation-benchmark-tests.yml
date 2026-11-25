@@ -1,0 +1,30 @@
+name: Draft extrapolation benchmark tests
+
+on:
+  pull_request:
+    paths:
+      - 'echo_gen_extrapolation_benchmark.py'
+      - 'test_echo_gen_extrapolation_benchmark.py'
+      - 'EXTRAPOLATION_BENCHMARK_DRAFT.md'
+      - '.github/workflows/extrapolation-benchmark-tests.yml'
+  push:
+    branches:
+      - 'draft/extrapolation-benchmark-weighted-score'
+
+jobs:
+  benchmark-scaffold:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile and test dependency-free benchmark
+        run: |
+          python -m py_compile echo_gen_extrapolation_benchmark.py test_echo_gen_extrapolation_benchmark.py
+          python -m unittest -v test_echo_gen_extrapolation_benchmark.py
